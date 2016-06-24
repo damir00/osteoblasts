@@ -1,0 +1,70 @@
+Osteoblasts
+
+Targets:
+
+linux32
+win32
+
+
+TODO:
+
+enemies
+	movement
+	terrain avoidance
+
+terrain collision query optimisation
+
+
+--------------------
+2-4 rockets
+bullets
+enemies spawning
+
+
+--------------------
+
+DONE
+
+lower please the shiled by several pixels so that its in the center of the ship http://screencloud.net/v/lidH
+could you please set projectile spawn under the units
+[09:10:05] Igor Green: and second if you could please make the rocket spawn on main hero ship from these points http://screencloud.net/v/DbzV	//not done
+and i wanted to ask if you could make this motion blur for the hammerswing
+fullscreen blast wave shader
+random slowdowns - fixed by enabling framerate limiter
+blast trough terrain quicker when using shield
+health bar
+weapons charge
+terrain line error fix
+platypus boss
+delete the old explosion
+luna boss
+walrus boss
+enemies flash on damage 
+laser
+
+main menu
+make the oil over the screen bigger with x2 or x3
+octopus to fire shots at double speed from now
+enemy bullets target leading
+laser wave effect shader
+octopus boss 3x size
+
+TODO
+
+bosses
+new HUD gfx
+bosses x2 or x3
+can't alt-tab out of the game
+laser-terrain collision
+
+I noticed there is a rotor animation for enemies - which enemies should have it? - mostly its giraffe unit
+death, god mode
+music and sfx volume sliders
+fix game crash (memleak,segfault,...?)
+
+
+
+
+
+
+
