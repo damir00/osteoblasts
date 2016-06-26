@@ -18,7 +18,7 @@ public:
 	bool down;
 };
 
-class Menu : public NodeSprite {
+class Menu : public PositionNode {
 public:
 	Menu* menu_master;
 	sf::Vector2f size;

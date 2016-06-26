@@ -5,6 +5,7 @@
 #include <tr1/unordered_map>
 #include <string>
 #include <stdio.h>
+#include "Utils.h"
 
 class NodeShader {
 	std::tr1::unordered_map<std::string,float> param_float;
@@ -24,19 +25,29 @@ public:
 		r=g=b=a=1.0;
 	}
 	NodeColor(float _r,float _g,float _b,float _a) {
+		set(_r,_g,_b,_a);
+	}
+	NodeColor operator*(const NodeColor& c) {
+		return NodeColor(r*c.r,g*c.g,b*c.b,a*c.a);
+	}
+	void set(float _r,float _g,float _b,float _a) {
 		r=_r;
 		g=_g;
 		b=_b;
 		a=_a;
-	}
-	NodeColor operator*(const NodeColor& c) {
-		return NodeColor(r*c.r,g*c.g,b*c.b,a*c.a);
 	}
 	void operator*=(const NodeColor& c) {
 		r*=c.r;
 		g*=c.g;
 		b*=c.b;
 		a*=c.a;
+	}
+	NodeColor lerp(NodeColor c,float x) {
+		return NodeColor(
+				Utils::lerp(r,c.r,x),
+				Utils::lerp(g,c.g,x),
+				Utils::lerp(b,c.b,x),
+				Utils::lerp(a,c.a,x));
 	}
 	sf::Color sfColor() const {
 		return sf::Color(r*255.0,g*255.0,b*255.0,a*255.0);
@@ -107,17 +118,15 @@ public:
 		}
 	}
 };
-class NodeSprite : public Node {
+class PositionNode : public Node {
 public:
-	sf::Sprite sprite;
 	sf::Vector2f pos;
 	sf::Vector2f scale;
 	float angle;	//rad
-	NodeSprite() {
+	PositionNode() {
 		angle=0;
 		scale=sf::Vector2f(1,1);
 	}
-
 	sf::Transform get_transform() {
 		sf::Transform tr(sf::Transform::Identity);
 		tr.translate(pos);
@@ -125,10 +134,37 @@ public:
 		tr.rotate(angle);
 		return tr;
 	}
-
+};
+class NodeSprite : public PositionNode {
+public:
+	sf::Sprite sprite;
+	sf::Vector2f getSize() {
+		const sf::Texture* tex=sprite.getTexture();
+		if(tex==NULL) {
+			return sf::Vector2f(0,0);
+		}
+		sf::Vector2u size=tex->getSize();
+		return sf::Vector2f(size.x,size.y);
+	}
 	void draw(const NodeState& state) {
 		sprite.setColor(state.color.sfColor());
 		state.render_target->draw(sprite,state.render_state);
+	}
+};
+class NodeText : public PositionNode {
+public:
+
+	NodeText() {
+		printf("NodeText ctor\n");
+	}
+	virtual ~NodeText() {
+		printf("NodeText dtor\n");
+	}
+
+	sf::Text text;
+	void draw(const NodeState& state) {
+		text.setColor(state.color.sfColor());
+		state.render_target->draw(text,state.render_state);
 	}
 };
 

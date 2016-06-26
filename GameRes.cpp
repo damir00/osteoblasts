@@ -90,7 +90,7 @@ void GameRes::init() {
 
         ParserJSON::parse_ship_groups("assets/ships.json",ship_groups);
 
-        font.loadFromFile("assets/Verdana.ttf");
+        font.loadFromFile("assets/BMjapan.TTF");
 
     	bool shader_enabled=sf::Shader::isAvailable();
     	if(shader_enabled) {

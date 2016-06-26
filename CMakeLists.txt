@@ -53,7 +53,7 @@ include_directories(
 	#${GLIB_INCLUDE}
 )
 
-add_library(lbtga SHARED
+add_library(lbga SHARED
 	osteoblasts.cpp
 	BGManager.cpp
 	GameRes.cpp
@@ -69,16 +69,16 @@ add_library(lbtga SHARED
 	Audio.cpp
 	Menu.cpp
 )
-target_link_libraries(lbtga ${LOCAL_LIBS})
+target_link_libraries(lbga ${LOCAL_LIBS})
 
-add_executable(bgta osteoblasts.cpp)
-target_link_libraries(bgta lbtga)
+add_executable(bga osteoblasts.cpp)
+target_link_libraries(bga lbga)
 
 #add_executable(ship_viewer ship_viewer.cpp)
 #target_link_libraries(ship_viewer osteo)
 
 add_executable(test test.cpp)
-target_link_libraries(test lbtga)
+target_link_libraries(test lbga)
 
 
 

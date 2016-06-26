@@ -503,126 +503,103 @@ private:
 	}
 };
 */
-class MenuSpriteButton : public Menu {
-
-public:
-
-	int action;
-
-	MenuSpriteButton() {
-		action=-1;
-	}
-	MenuSpriteButton(const sf::Texture& tex) {
-		action=-1;
-		sprite.setTexture(tex);
-	}
-	void set_texture(const sf::Texture& tex) {
-		sprite.setTexture(tex);
-		size.x=scale.x*(float)tex.getSize().x;
-		size.y=scale.y*(float)tex.getSize().y;
-	}
-	void on_clicked(sf::Vector2f pos) {
-		message_send(action);
-	}
-	void on_hover(bool hover) {
-		if(hover) {
-			sprite.setColor(sf::Color(128,128,128));
-		}
-		else {
-			sprite.setColor(sf::Color(255,255,255));
-		}
-	}
-};
-
-typedef std::tr1::shared_ptr<MenuSpriteButton> MenuSpriteButtonPtr;
-
-/*
-class MenuMain : public Menu {
-	MenuMainPage page_main;
-
-	typedef std::tr1::shared_ptr<MenuSpriteButton> MenuSpriteButtonPtr;
-
-	MenuSpriteButtonPtr btn_start;
-	MenuSpriteButtonPtr btn_start2;
-	MenuSpriteButtonPtr btn_help;
-	MenuSpriteButtonPtr btn_options;
-	MenuSpriteButtonPtr btn_stats;
-
-	MenuSpriteButtonPtr add_button(const std::string& texture) {
-		MenuSpriteButtonPtr btn(new MenuSpriteButton());
-		btn->set_texture(*GameRes::get_texture(texture));
-		btn->set_scale(4);
-		add_item(btn.get());
-		return btn;
-	}
-public:
-	MenuGame menu_game;
-
-	MenuMain() {
-		add_item(&page_main);
-
-		btn_start=add_button("menu/b_start.png");
-		btn_start2=add_button("menu/b_start2.png");
-		btn_help=add_button("menu/b_help.png");
-		btn_options=add_button("menu/b_options.png");
-		btn_stats=add_button("menu/b_stats.png");
-
-		add_item(&menu_game);
-		menu_game.set_enabled(false);
-
-
-		#if 0
-		sf::Sprite* sprite=new sf::Sprite();
-		sprite->setTexture(*GameRes::get_texture("luna/beam.png"));
-		sprite->setTextureRect(sf::IntRect(0,0,50,500));
-		NodeContainer* testc=new NodeContainer(sprite);
-
-		testc->shader.shader=&GameRes::shader_damage;
-		testc->shader.set_param("time",1.0f);
-		testc->shader.set_param("amount",0.2f);
-		testc->shader.set_param("freq",2.0f);
-
-		add_child(testc);
-		#endif
-
-	}
-	void on_resized() {
-		btn_start->set_pos(size-btn_start->size);
-		btn_start2->set_pos(size-btn_start2->size-sf::Vector2f(btn_start2->size.x+20,0));
-		btn_help->set_pos(sf::Vector2f(0,0));
-		btn_options->set_pos(sf::Vector2f(size.x-btn_start->size.x,0));
-		btn_stats->set_pos(sf::Vector2f(0,size.y-btn_start->size.y));
-	}
-	void on_clicked(sf::Vector2f pos) {
-		if(menu_game.is_enabled()) {
-			return;
-		}
-		if(btn_start->point_inside(pos)) {
-			menu_game.start_level("assets/game.json");
-			menu_game.set_enabled(true);
-		}
-		if(btn_start2->point_inside(pos)) {
-			menu_game.start_level("assets/game2.json");
-			menu_game.set_enabled(true);
-		}
-	}
-};
-*/
-
 
 typedef std::tr1::shared_ptr<Node> NodePtr;
+typedef std::tr1::shared_ptr<NodeText> NodeTextPtr;
 typedef std::tr1::shared_ptr<NodeSprite> NodeSpritePtr;
 typedef std::tr1::shared_ptr<NodeContainer> NodeContainerPtr;
 
-class MenuMainHeaderShadeRect {
+class MenuButton : public Menu {
 public:
-	std::tr1::shared_ptr<sf::RectangleShape> rect;
-	NodeContainerPtr node;
+	int action;
+	NodeColor color_normal;
+	NodeColor color_hover;
+	MenuButton() {
+		action=-1;
+		color_normal=NodeColor(1,1,1,1);
+		color_hover=NodeColor(0.5,0.5,0.5,1);
+	}
+	virtual void on_clicked(sf::Vector2f pos) {
+		message_send(action);
+	}
+	virtual void on_hover(bool hover) {
+		if(hover) {
+			color=color_hover;
+		}
+		else {
+			color=color_normal;
+		}
+	}
+};
 
+class MenuSpriteButton : public MenuButton {
+	NodeSpritePtr sprite;
+public:
+
+	MenuSpriteButton() {
+		sprite=NodeSpritePtr(new NodeSprite());
+		add_child(sprite.get());
+	}
+	MenuSpriteButton(const sf::Texture& tex) {
+		sprite->sprite.setTexture(tex);
+	}
+	void set_texture(const sf::Texture& tex) {
+		sprite->sprite.setTexture(tex);
+		size.x=scale.x*(float)tex.getSize().x;
+		size.y=scale.y*(float)tex.getSize().y;
+	}
+};
+class MenuTextButton : public MenuButton {
+public:
+	enum Align {
+		ALIGN_LEFT,
+		ALIGN_CENTER,
+		ALIGN_RIGHT
+	};
+
+private:
+	Align align;
+
+	void update_align() {
+		float offset;
+		if(align==ALIGN_LEFT) offset=0.0;
+		else if(align==ALIGN_CENTER) offset=0.5;
+		else offset=1.0;
+		text->pos.x=(size.x-text->text.getLocalBounds().width)*offset;
+	}
+public:
+
+	NodeTextPtr text;
+
+	MenuTextButton() {
+		text=NodeTextPtr(new NodeText());
+		text->text.setFont(GameRes::font);
+		text->text.setCharacterSize(22);
+		add_child(text.get());
+		set_align(ALIGN_LEFT);
+	}
+	void set_text(const std::string& txt) {
+		text->text.setString(txt);
+	}
+	void set_align(Align a) {
+		align=a;
+		update_align();
+	}
+	virtual void on_resized() {
+		update_align();
+	}
+
+};
+
+typedef std::tr1::shared_ptr<MenuButton> MenuButtonPtr;
+typedef std::tr1::shared_ptr<MenuSpriteButton> MenuSpriteButtonPtr;
+typedef std::tr1::shared_ptr<MenuTextButton> MenuTextButtonPtr;
+
+class MenuMainHeaderShadeRect : public NodeContainer {
+public:
+	sf::RectangleShape rect;
 	MenuMainHeaderShadeRect() {
-		rect=std::tr1::shared_ptr<sf::RectangleShape>(new sf::RectangleShape());
-		node=NodeContainerPtr(new NodeContainer());
-		node->item=rect.get();
+		item=&rect;
 	}
 };
 typedef std::tr1::shared_ptr<MenuMainHeaderShadeRect> MenuMainHeaderShadeRectPtr;
@@ -671,7 +648,7 @@ class MenuMainHeader : public Menu {
 
 		void update_shade(int i,float x) {
 			x=1.0-Utils::clamp(0,1,x);
-			shade_rects[i]->rect->setFillColor(sf::Color(20,12,28,255*0.5*x));
+			shade_rects[i]->rect.setFillColor(sf::Color(20,12,28,255*0.5*x));
 		}
 		bool index_taken(int i) {
 			for(int i1=0;i1<blinks.size();i1++) {
@@ -748,11 +725,11 @@ class MenuMainHeader : public Menu {
 	}
 	void add_shade_rect(int x,int y,int w,int h) {
 		MenuMainHeaderShadeRectPtr rect=MenuMainHeaderShadeRectPtr(new MenuMainHeaderShadeRect());
-		rect->rect->setSize(sf::Vector2f(w,h));
-		rect->node->render_state.transform=sf::Transform::Identity;
-		rect->node->render_state.transform.translate(sf::Vector2f(x,y));
-		rect->rect->setFillColor(sf::Color(20,12,28,0));
-		add_child(rect->node.get());
+		rect->rect.setSize(sf::Vector2f(w,h));
+		rect->render_state.transform=sf::Transform::Identity;
+		rect->render_state.transform.translate(sf::Vector2f(x,y));
+		rect->rect.setFillColor(sf::Color(20,12,28,0));
+		add_child(rect.get());
 		blinker.shade_rects.push_back(rect);
 	}
 	float get_shade_perlin(float x,float time) {
@@ -822,15 +799,9 @@ public:
 		boom_amount=Utils::num_move_towards(boom_amount,0.004,delta*0.00003);
 
 		float a=(cos(time/1000.0)+1.0)/2.0;
-		sf::Color red_color1(196,81,83);
-		sf::Color red_color2(255,22,26);
-		node_red_lines->sprite.setColor(color_lerp(red_color1,red_color2,a));
-		/*
-		for(int i=0;i<shade_rects.size();i++) {
-			MenuMainHeaderShadeRectPtr& r=shade_rects[i];
-			r->rect->setFillColor(sf::Color(20,12,28,255*0.5*(1.0-get_shade_perlin(i,time))));
-		}
-		*/
+		NodeColor red_color1(196.0/255.0,81.0/255.0,83.0/255.0,1.0);
+		NodeColor red_color2(255.0/255.0,22.0/255.0,26.0/255.0,1.0);
+		node_red_lines->color=red_color1.lerp(red_color2,a);
 	}
 	void on_clicked(sf::Vector2f mouse_pos) {
 		if(Utils::probability(0.75)) {
@@ -849,6 +820,15 @@ class MenuMainFirst : public Menu {
 		add_item(btn.get());
 		return btn;
 	}
+	MenuTextButtonPtr add_text_button(const std::string& text,float x,float y,float w,float h) {
+		MenuTextButtonPtr btn(new MenuTextButton());
+		btn->set_text(text);
+		btn->pos=sf::Vector2f(x,y);
+		btn->resize(sf::Vector2f(w,h));
+		btn->set_align(MenuTextButton::ALIGN_CENTER);
+		add_item(btn.get());
+		return btn;
+	}
 
 	NodeSpritePtr add_node(const std::string& texture,float x,float y) {
 		NodeSpritePtr node(new NodeSprite());
@@ -862,9 +842,9 @@ class MenuMainFirst : public Menu {
 
 public:
 
-	MenuSpriteButtonPtr btn_start;
-	MenuSpriteButtonPtr btn_quit;
-	MenuSpriteButtonPtr btn_settings;
+	MenuButtonPtr btn_start;
+	MenuButtonPtr btn_quit;
+	MenuButtonPtr btn_settings;
 
 	MenuMainFirst() {
 		/*
@@ -879,13 +859,100 @@ public:
 		white lines - 0x407
 		 */
 
-		btn_start=add_button("menu/start button.png",435,398);
+		//btn_start=add_button("menu/start button.png",435,398);
+		btn_start=add_text_button("START",436-10,398-5,85+20,15+10);
 		btn_quit=add_button("menu/exit icon.png",907,487);
 		btn_settings=add_button("menu/options icon.png",30,487);
 		add_node("menu/white lines.png",0,407);
 	}
 };
+
+
+class MenuSlider : public Menu {
+	NodeSpritePtr anchor1;
+	NodeSpritePtr anchor2;
+	NodeSpritePtr bar;
+	NodeSpritePtr handle;
+
+	NodeSpritePtr create_sprite(const std::string& texture) {
+		NodeSpritePtr n=NodeSpritePtr(new NodeSprite());
+		n->sprite.setTexture(*GameRes::get_texture("menu/slider/"+texture));
+		add_child(n.get());
+		return n;
+	}
+
+	bool pressed;
+
+	float value;	//0-1
+
+	float value_for_x(float x) {
+		return Utils::clamp(0,1,(x-17)/(size.x-17*2));
+	}
+	float x_for_value(float value) {
+		return 17+value*(size.x-17*2);
+	}
+
+	void update_hover_state() {
+		if(state_hover || pressed) {
+			//color.set(0.5,0.5,0.5,1.0);
+			color.set(1.0,0.5,0.5,1.0);
+		}
+		else {
+			color.set(1.0,1.0,1.0,1.0);
+		}
+	}
+
+public:
+
+	MenuSlider() {
+		anchor1=create_sprite("anchor1.png");
+		anchor2=create_sprite("anchor2.png");
+		bar=create_sprite("bar.png");
+		handle=create_sprite("handle.png");
+		pressed=false;
+	}
+
+	float get_value() {
+		return value;
+	}
+	void set_value(float v) {
+		value=v;
+		handle->pos.x=x_for_value(value)-handle->getSize().x/2;
+	}
+	void on_hover(bool hover) {
+		update_hover_state();
+	}
+
+	void on_resized() {
+		anchor1->pos=sf::Vector2f(0,2);
+		anchor2->pos=sf::Vector2f(size.x-anchor2->getSize().x,2);
+		bar->pos=sf::Vector2f(9,5);
+		bar->sprite.setScale((size.x-9*2)/(float)bar->getSize().x,1.0);
+		handle->pos=sf::Vector2f(size.x/2,0);
+	}
+	virtual void on_event(sf::Event event) {
+		if(event.type==sf::Event::MouseButtonPressed) {
+			if(event_inside(event.mouseButton)) {
+				pressed=true;
+				set_value(value_for_x(event.mouseButton.x));
+			}
+		}
+		else if(event.type==sf::Event::MouseButtonReleased) {
+			pressed=false;
+			update_hover_state();
+		}
+		else if(event.type==sf::Event::MouseMoved && pressed) {
+			set_value(value_for_x(event.mouseMove.x));
+		}
+	}
+};
+
+typedef std::tr1::shared_ptr<MenuSlider> MenuSliderPtr;
+
 class MenuMainSettings : public Menu {
+
+	std::vector<NodePtr> items;
+
 	MenuSpriteButtonPtr add_button(const std::string& texture,float x,float y) {
 		MenuSpriteButtonPtr btn(new MenuSpriteButton());
 		btn->set_texture(*GameRes::get_texture(texture));
@@ -893,12 +960,69 @@ class MenuMainSettings : public Menu {
 		add_item(btn.get());
 		return btn;
 	}
+	NodeTextPtr add_text(const std::string& text,int col,int row) {
+		NodeTextPtr t(new NodeText());
+		t->text.setString(text);
+		t->text.setFont(GameRes::font);
+		t->text.setCharacterSize(22);
+
+		t->pos.x=405-t->text.getLocalBounds().width;
+		t->pos.y=239+row*46;
+
+		add_child(t.get());
+		items.push_back(t);
+		return t;
+	}
+	MenuSliderPtr add_slider(int col,int row) {
+		MenuSliderPtr slider(new MenuSlider());
+		if(col==0) {
+			slider->pos=sf::Vector2f(147,239+row*46);
+		}
+		else {
+			slider->pos=sf::Vector2f(502,239+row*46);
+		}
+		slider->resize(sf::Vector2f(348,16));
+		add_item(slider.get());
+		return slider;
+	}
+	MenuTextButtonPtr add_text_button(const std::string& text,int col,int row) {
+		MenuTextButtonPtr btn=MenuTextButtonPtr(new MenuTextButton());
+
+		btn->set_text(text);
+		if(col==0) {
+			btn->pos=sf::Vector2f(145,239+row*46);
+			btn->set_align(MenuTextButton::ALIGN_RIGHT);
+			btn->resize(sf::Vector2f(405-145,25));
+		}
+		else {
+			btn->pos=sf::Vector2f(500,239+row*46);
+			btn->set_align(MenuTextButton::ALIGN_CENTER);
+			btn->resize(sf::Vector2f(332,25));
+		}
+
+		add_item(btn.get());
+		return btn;
+	}
 
 public:
-	MenuSpriteButtonPtr btn_back;
+	MenuButtonPtr btn_back;
+	MenuButtonPtr btn_clear_save;
+	MenuButtonPtr btn_reset_defaults;
+	MenuButtonPtr btn_fullscreen;
+	MenuSliderPtr music_slider;
+	MenuSliderPtr sfx_slider;
 
 	MenuMainSettings() {
 		btn_back=add_button("menu/exit icon.png",907,487);
+		add_text("MUSIC",0,0);
+		add_text("SFX",0,1);
+		add_text("FULLSCREEN",0,2);
+		btn_clear_save=add_text_button("CLEAR SAVE",0,3);
+		btn_reset_defaults=add_text_button("RESET DEFAULTS",0,4);
+
+		music_slider=add_slider(1,0);
+		sfx_slider=add_slider(1,1);
+		btn_fullscreen=add_text_button("OFF",1,2);
 	}
 };
 
@@ -1085,7 +1209,7 @@ void GameFramework::create_window(int w,int h) {
 	window.setVerticalSyncEnabled(true);
 	window.setFramerateLimit(80);
 
-	window.create(sf::VideoMode(1024,768), "BGTA");
+	window.create(sf::VideoMode(1024,768), "BGTA"/*,sf::Style::None*/);
 	window_view=window.getView();
 	game_size=Utils::vec_to_i(window_view.getSize());
 	has_focus=true;
