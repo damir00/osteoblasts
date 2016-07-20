@@ -1,13 +1,21 @@
 cmake_minimum_required(VERSION 2.6)
-project(Osteoblasts)
+project(bga)
 
 set(CMAKE_BUILD_TYPE Debug)
 cmake_policy(SET CMP0015 OLD)	# relative link paths
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wreturn-type")	#warn on no return
 
-if(NOT DEFINED PLATFORM)
-	message(FATAL_ERROR "Platform not defined")
+if(WIN32)
+	set(PLATFORM "win32")
+	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-subsystem,windows")
+else()
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wreturn-type")	#warn on no return
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 endif()
+
+
+#if(NOT DEFINED PLATFORM)
+#	message(FATAL_ERROR "Platform not defined")
+#endif()
 
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin/${PLATFORM})
@@ -16,69 +24,65 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin/${PLATFORM})
 set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/deps/${PLATFORM}/lib)
 set(LOCAL_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/deps/${PLATFORM}/include)
 
-if(${PLATFORM} STREQUAL "linux32")
+#SFML
+#set(DEP_SFML_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/deps/${PLATFORM}/SFML-2.3.2" CACHE STRING "SFML root dir")
+set(DEP_SFML_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/deps/${PLATFORM}/SFML-2.1" CACHE STRING "SFML root dir")
+set(DEP_SFML_INCLUDE_DIR "${DEP_SFML_ROOT}/include")
+set(DEP_SFML_LIB_DIR "${DEP_SFML_ROOT}/lib")
+
+if("${PLATFORM}" STREQUAL "linux32")
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -m32")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -m32")
 	set(LOCAL_LIBS
-		${LIB_DIR}/libsfml-audio.so.2
-		${LIB_DIR}/libsfml-graphics.so.2
-		${LIB_DIR}/libsfml-network.so.2
-		${LIB_DIR}/libsfml-system.so.2
-		${LIB_DIR}/libsfml-window.so.2
+		${DEP_SFML_LIB_DIR}/libsfml-audio.so
+		${DEP_SFML_LIB_DIR}/libsfml-graphics.so
+		${DEP_SFML_LIB_DIR}/libsfml-system.so
+		${DEP_SFML_LIB_DIR}/libsfml-window.so
+
+		#${DEP_LIBNOISE_LIB_DIR}/libnoise.so.0
 		${LIB_DIR}/libGLEW.so.1.10
-		${LIB_DIR}/libnoise.so.0
+
 		${LIB_DIR}/libjsoncpp.a
+		#s${LIB_DIR}/libsfml-network.so.2
 	)
-elseif(${PLATFORM} STREQUAL "win32")
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libgcc")
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mwindows")
+elseif("${PLATFORM}" STREQUAL "win32")
+	#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libgcc")
+	#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mwindows")
 	set(LOCAL_LIBS
-		${LIB_DIR}/sfml-audio-2.dll
-		${LIB_DIR}/sfml-graphics-2.dll
-		${LIB_DIR}/sfml-network-2.dll
-		${LIB_DIR}/sfml-system-2.dll
-		${LIB_DIR}/sfml-window-2.dll
+		${DEP_SFML_LIB_DIR}/sfml-audio.lib
+		${DEP_SFML_LIB_DIR}/sfml-graphics.lib
+		${DEP_SFML_LIB_DIR}/sfml-system.lib
+		${DEP_SFML_LIB_DIR}/sfml-window.lib
+
+		#${DEP_LIBNOISE_LIB_DIR}/libnoise.lib
+
+		#${LIB_DIR}/sfml-network-2.dll
+		#${LIB_DIR}/libjsoncpp.a
+
 		#${LIB_DIR}/libGLEW.so.1.10
-		${LIB_DIR}/libnoise.dll
-		${LIB_DIR}/libjsoncpp.a
 	)
 endif()
 
 include_directories(
 	${INCLUDE_DIR}
 	${LOCAL_INCLUDE_DIR}
-	${LOCAL_INCLUDE_DIR}/SFML
-	${LOCAL_INCLUDE_DIR}/libnoise
+	${DEP_SFML_INCLUDE_DIR}
+	${CMAKE_CURRENT_SOURCE_DIR}/ext
+	#${DEP_LIBNOISE_INCLUDE_DIR}
+
+	#${LOCAL_INCLUDE_DIR}/libnoise
 	#${LOCAL_INCLUDE_DIR}/json
 	#${GLIB_INCLUDE}
 )
 
-add_library(lbga SHARED
-	osteoblasts.cpp
-	BGManager.cpp
-	GameRes.cpp
-	Node.cpp
-	Utils.cpp
-	Terrain.cpp
-	TerrainLoader.cpp
-	Spawner.cpp
-	Game.cpp
-	Ship.cpp
-	Anim.cpp
-	Parser.cpp
-	Audio.cpp
-	Menu.cpp
-)
-target_link_libraries(lbga ${LOCAL_LIBS})
-
-add_executable(bga osteoblasts.cpp)
-target_link_libraries(bga lbga)
+add_subdirectory(ext)
+add_subdirectory(src)
 
 #add_executable(ship_viewer ship_viewer.cpp)
 #target_link_libraries(ship_viewer osteo)
 
-add_executable(test test.cpp)
-target_link_libraries(test lbga)
+#add_executable(test test.cpp)
+#target_link_libraries(test lbga)
 
 
 

@@ -1,6 +1,3 @@
-
-
-
 options icon - 30x487 
 exit icon - 907x487 
 start button - 435x398
@@ -31,3 +28,10 @@ beneath it the scrollable background from game but I think without the terrain
 [20:03:32] Igor Grincu: as for the frequency, not sure yet
 
 white lines + bg
+-----------
+
+codebase refactor
+
+import new game assets
+
+
