@@ -64,6 +64,9 @@ public:
 		f_fetch=_fetch;
 		f_delete=_delete;
 	}
+	~Cache() {
+		clear();
+	}
 	V get(K key) {
 		if(items.count(key)>0) {
 			return items[key];
@@ -78,6 +81,12 @@ public:
 		}
 		f_delete(key);
 		items.erase(key);
+	}
+	void clear() {
+		for(auto it : items) {
+			f_delete(it.second);
+		}
+		items.clear();
 	}
 };
 }
@@ -98,6 +107,12 @@ public:
 	{
 	}
 	~Impl() {}
+
+	void clear_all() {
+		cache_textures.clear();
+		cache_images.clear();
+		cache_fonts.clear();
+	}
 
 	Texture get_texture(const std::string& path) {
 		return cache_textures.get("assets/"+path);
@@ -139,5 +154,8 @@ sf::Image* Loader::get_image(const std::string &path) {
 }
 sf::Font* Loader::get_font(const std::string &path) {
 	return impl->get_font(path);
+}
+void Loader::clear_all() {
+	impl->clear_all();
 }
 

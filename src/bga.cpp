@@ -14,7 +14,6 @@
 #include "MenuMain.h"
 
 
-
 class TestMenu : public Menu {
 public:
 
@@ -102,6 +101,11 @@ int main(int argc,char** argv) {
 #endif
 	printf("Welcome to BGA!\n");
 
+
+	//std::unique_ptr<Foo> flop(new Foo());
+	//return 0;
+
+
 	Loader::init();
 
 	//TestMenu test_menu;
@@ -113,6 +117,8 @@ int main(int argc,char** argv) {
 	//main_menu.go_game();
 
 	f.run();
+
+	Loader::clear_all();
 
 	return 0;
 }

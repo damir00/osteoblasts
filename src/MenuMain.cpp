@@ -108,8 +108,8 @@ class MenuMainHeader : public Menu {
 			shade_rects[i]->color=Color(sf::Color(20,12,28,255*0.5*x));
 		}
 		bool index_taken(int i) {
-			for(int i1=0;i1<blinks.size();i1++) {
-				if(blinks[i1].index==i) {
+			for(const Blink& b : blinks) {
+				if(b.index==i) {
 					return true;
 				}
 			}
@@ -117,8 +117,7 @@ class MenuMainHeader : public Menu {
 		}
 		int get_new_index() {
 			int i=Utils::rand_range_i(0,shade_rects.size()-1);
-			//while(index_taken(i)) {
-			for(int x=0;x<shade_rects.size() && index_taken(i);x++) {
+			for(std::size_t x=0;x<shade_rects.size() && index_taken(i);x++) {
 				i=(i+1)%shade_rects.size();
 			}
 			return i;
@@ -132,13 +131,12 @@ class MenuMainHeader : public Menu {
 			blink_duration=500;
 			blink_pause=1500;
 			blinks.resize(blink_count);
-			for(int i=0;i<blinks.size();i++) {
-				blinks[i].index=-1;
+			for(Blink& b : blinks) {
+				b.index=-1;
 			}
 		}
 		void frame(float delta) {
-			for(int i=0;i<blinks.size();i++) {
-				Blink& b=blinks[i];
+			for(Blink& b : blinks) {
 				if(b.index==-1 || b.ts>b.duration+b.pause) {
 					if(b.index!=-1) {
 						update_shade(b.index,1.0);
@@ -437,8 +435,8 @@ public:
 		add_child(&menu_game);
 
 		menu_game.node.visible=false;
-		for(int i=0;i<pages.size();i++) {
-			pages[i]->node.visible=false;
+		for(Menu* m : pages) {
+			m->node.visible=false;
 		}
 		page_first.node.visible=true;
 		page_current=&page_first;
@@ -465,9 +463,9 @@ public:
 		}
 		scale_f=sf::Vector2f(scale,scale);
 
-		for(int i=0;i<pages.size();i++) {
-			pages[i]->node.pos=offset;
-			pages[i]->node.scale=scale_f;
+		for(Menu * page : pages) {
+			page->node.pos=offset;
+			page->node.scale=scale_f;
 		}
 		header.node.pos=offset;
 		header.node.scale=scale_f;

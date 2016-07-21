@@ -4,6 +4,7 @@
 
 #include <vector>
 #include <cstdint>
+#include <memory>
 
 #include <SFML/System.hpp>
 
@@ -12,26 +13,9 @@
 #include "Menu.h"
 #include "SpaceBackground.h"
 #include "Terrain.h"
+#include "Quad.h"
 
 //utils
-class Quad {
-public:
-	sf::Vector2f p1;
-	sf::Vector2f p2;
-	Quad() {}
-	Quad(sf::Vector2f _p1,sf::Vector2f _p2) {
-		p1=_p1;
-		p2=_p2;
-	}
-	bool intersects(const Quad& q) const {
-		return (p1.x<=q.p2.x && p2.x>=q.p1.x && p1.y<=q.p2.y && p2.y>=q.p1.y);
-	}
-	void translate(sf::Vector2f p) {
-		p1+=p;
-		p2+=p;
-	}
-};
-
 
 class Animation {
 public:
@@ -451,13 +435,13 @@ public:
 		e->attributes.push_back(attr);
 	}
 	void attribute_remove(Entity* e,Entity::Attribute attr) {
-		if(attribute_map.size()<attr+1) {
+		if(attribute_map.size()<(std::size_t)(attr+1)) {
 			return;
 		}
 		Utils::vector_remove(attribute_map[attr],e);
 	}
 	bool attribute_has(Entity* e,Entity::Attribute attr) {
-		if(attribute_map.size()<attr+1) {
+		if(attribute_map.size()<(std::size_t)(attr+1)) {
 			return false;
 		}
 		return (Utils::vector_index_of(attribute_map[attr],e)!=-1);
@@ -585,15 +569,20 @@ public:
 				for(Entity::Attribute a : e->attributes) {
 					attribute_remove(e,a);
 				}
-
 				delete(e);
-
 			}
 			entities_to_remove.clear();
 		}
 		if(components_to_remove.size()>0) {
+			std::vector<Component*> comps_to_delete;	//xxx
+
 			for(Component* c : components_to_remove) {
-				if(component_map.size()<c->type+1) {
+
+				if(Utils::vector_contains(comps_to_delete,c)) {
+					continue;
+				}
+
+				if(component_map.size()<(std::size_t)(c->type+1)) {
 					printf("type not in map %d\n",c->type);
 					continue;
 				}
@@ -603,9 +592,13 @@ public:
 					continue;
 				}
 				component_map[c->type].erase(component_map[c->type].begin()+index);
-				delete(c);
+				comps_to_delete.push_back(c);
 			}
 			components_to_remove.clear();
+
+			for(Component* c : comps_to_delete) {
+				delete(c);
+			}
 		}
 	}
 };
@@ -998,16 +991,18 @@ public:
 
 		//sim
 		for(Entity* e : entities.entities) {
-
 			//display
+			for(GraphicNode::Ptr& d : e->display.nodes) {
+				d->update(dt);
+			}
+			/*
 			for(int d=0;d<e->display.nodes.size();d++) {
 				e->display.nodes[d]->update(dt);
 			}
+			*/
 
 			//shape
-			for(int s=0;s<e->shape.quads.size();s++) {
-				const Quad& q=e->shape.quads[s];
-
+			for(const Quad& q : e->shape.quads) {
 				Quad q2=q;
 				q2.translate(e->pos);
 
@@ -1022,19 +1017,19 @@ public:
 				}
 
 				//brute-force collisions
-				for(int ci=0;ci<entities.entities.size();ci++) {
-					Entity* ce=entities.entities[ci];
+				for(Entity* ce : entities.entities) {
 					if(ce==e) {
 						continue;
 					}
 
 					if( (e->shape.collision_group&ce->shape.collision_mask)==0 ||
-							(ce->shape.collision_group&e->shape.collision_mask==0)) {
+							(ce->shape.collision_group&e->shape.collision_mask)==0) {
 						continue;
 					}
 
-					for(int cs=0;cs<ce->shape.quads.size();cs++) {
-						const Quad& cq=ce->shape.quads[cs];
+					for(const Quad& cq : ce->shape.quads) {
+//					for(int cs=0;cs<ce->shape.quads.size();cs++) {
+	//					const Quad& cq=ce->shape.quads[cs];
 
 						Quad cq2=cq;
 						cq2.translate(ce->pos);

@@ -55,8 +55,8 @@ class Renderer {
 			new_state.target->draw(node->text,new_state.sfml_state);
 			break;
 		}
-		for(int i=0;i<node->children.size();i++) {
-			render_node(node->children[i],new_state);
+		for(Node* child : node->children) {
+			render_node(child,new_state);
 		}
 	}
 
@@ -85,8 +85,8 @@ public:
 	}
 
 	virtual void event_resize() override {
-		for(int i=0;i<children.size();i++) {
-			children[i]->resize(size);
+		for(Menu* child : children) {
+			child->resize(size);
 		}
 	}
 	virtual bool event_message(int msg) override {
@@ -206,6 +206,8 @@ public:
 				case sf::Event::MouseButtonPressed:
 				case sf::Event::MouseButtonReleased:
 					forward_event(event);
+					break;
+				default:
 					break;
 
 			}

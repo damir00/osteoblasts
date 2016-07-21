@@ -10,12 +10,14 @@ if(WIN32)
 else()
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wreturn-type")	#warn on no return
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall")	#warnings
 endif()
 
 
-#if(NOT DEFINED PLATFORM)
-#	message(FATAL_ERROR "Platform not defined")
-#endif()
+if(NOT DEFINED PLATFORM)
+	#message(FATAL_ERROR "Platform not defined")
+	set(PLATFORM "linux64")
+endif()
 
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin/${PLATFORM})
@@ -39,44 +41,39 @@ if("${PLATFORM}" STREQUAL "linux32")
 		${DEP_SFML_LIB_DIR}/libsfml-system.so
 		${DEP_SFML_LIB_DIR}/libsfml-window.so
 
-		#${DEP_LIBNOISE_LIB_DIR}/libnoise.so.0
 		${LIB_DIR}/libGLEW.so.1.10
+	)
+elseif("${PLATFORM}" STREQUAL "linux64")
+	set(LOCAL_LIBS
+		libsfml-audio.so
+		libsfml-graphics.so
+		libsfml-system.so
+		libsfml-window.so
 
-		${LIB_DIR}/libjsoncpp.a
-		#s${LIB_DIR}/libsfml-network.so.2
+		libGLEW.so
 	)
 elseif("${PLATFORM}" STREQUAL "win32")
-	#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libgcc")
-	#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mwindows")
 	set(LOCAL_LIBS
 		${DEP_SFML_LIB_DIR}/sfml-audio.lib
 		${DEP_SFML_LIB_DIR}/sfml-graphics.lib
 		${DEP_SFML_LIB_DIR}/sfml-system.lib
 		${DEP_SFML_LIB_DIR}/sfml-window.lib
 
-		#${DEP_LIBNOISE_LIB_DIR}/libnoise.lib
-
-		#${LIB_DIR}/sfml-network-2.dll
-		#${LIB_DIR}/libjsoncpp.a
-
 		#${LIB_DIR}/libGLEW.so.1.10
 	)
 endif()
 
 include_directories(
+	src
 	${INCLUDE_DIR}
 	${LOCAL_INCLUDE_DIR}
 	${DEP_SFML_INCLUDE_DIR}
 	${CMAKE_CURRENT_SOURCE_DIR}/ext
-	#${DEP_LIBNOISE_INCLUDE_DIR}
-
-	#${LOCAL_INCLUDE_DIR}/libnoise
-	#${LOCAL_INCLUDE_DIR}/json
-	#${GLIB_INCLUDE}
 )
 
 add_subdirectory(ext)
 add_subdirectory(src)
+add_subdirectory(test)
 
 #add_executable(ship_viewer ship_viewer.cpp)
 #target_link_libraries(ship_viewer osteo)

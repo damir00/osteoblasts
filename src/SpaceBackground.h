@@ -2,6 +2,7 @@
 #define _BGA_SPACE_BACKGROUND_H_
 
 #include <vector>
+#include <memory>
 
 #include <SFML/Graphics.hpp>
 
@@ -12,7 +13,7 @@ class SpaceBackground : public Node {
 
 	Node::Ptr bg;
 public:
-	std::vector<Layer*> layers;
+	std::vector<std::unique_ptr<Layer> > layers;
 
 	SpaceBackground();
 	~SpaceBackground();

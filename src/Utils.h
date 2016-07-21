@@ -97,6 +97,10 @@ public:
 		}
 		return -1;
 	}
+	template<class T>
+	static bool vector_contains(const std::vector<T>& vec,T item) {
+		return (vector_index_of(vec,item)!=-1);
+	}
 	//if size is smaller, resize to size, otherwise do nothing
 	template<class T>
 	static void vector_fit_size(std::vector<T>& vec,int size) {

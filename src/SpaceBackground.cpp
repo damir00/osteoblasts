@@ -80,7 +80,7 @@ public:
 
 				if(items_map.count(hash)>0) continue;
 
-				Node* item=new Node();
+				Node* item=new Node();	//memleak
 				item->pos.x=(float)x*spacing+Utils::rand_range(-r,r);
 				item->pos.y=(float)y*spacing+Utils::rand_range(-r,r);
 				if(textures.size()>0) {
@@ -116,9 +116,6 @@ SpaceBackground::SpaceBackground() {
 	add_child(bg.get());
 }
 SpaceBackground::~SpaceBackground() {
-	for(int i=0;i<layers.size();i++) {
-		delete(layers[i]);
-	}
 }
 
 void SpaceBackground::set_background_visible(bool visible) {
@@ -128,13 +125,13 @@ void SpaceBackground::add_layer(std::vector<Texture> bitmaps,float mult,float sp
 	Layer* layer=new Layer(spacing);
 	layer->mult=mult;
 	layer->spawner.textures=bitmaps;
-	layers.push_back(layer);
+	layers.push_back(std::unique_ptr<Layer>(layer));
 	add_child(layer,1);
 }
 
 void SpaceBackground::update(sf::FloatRect area) {
 	sf::Vector2f pos=Utils::area_center(area);
-	for(int i=0;i<layers.size();i++) {
+	for(std::size_t i=0;i<layers.size();i++) {
 		sf::Vector2f t_pos=pos*layers[i]->mult;
 		layers[i]->spawner.frame(t_pos,area);
 		//layers[i]->spawner.offset=-t_pos;

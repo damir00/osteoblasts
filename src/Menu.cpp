@@ -77,6 +77,8 @@ bool Menu::send_event(const MenuEvent& event) {
 			}
 			pressed=false;
 			break;
+		default:
+			break;
 	}
 
 	return event_input(event);
@@ -98,8 +100,8 @@ bool Menu::trigger_message(int msg) {
 }
 
 void Menu::frame(float delta) {
-	for(int i=0;i<children.size();i++) {
-		children[i]->frame(delta);
+	for(Menu* child : children) {
+		child->frame(delta);
 	}
 	event_frame(delta);
 }

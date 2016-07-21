@@ -8,7 +8,6 @@
 
 #include "Texture.h"
 
-
 class Color {
 public:
 	float r,g,b,a;

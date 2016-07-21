@@ -60,7 +60,7 @@ public:
 	void resize(sf::Vector2f size);
 	bool send_event(const MenuEvent& event);	//event must be adapted to this menu
 	bool send_message(int msg);		//this menu will process message before sending it up
-	bool trigger_message(int msg);	//message will be sent up directily
+	bool trigger_message(int msg);	//message will be sent up directly
 	void frame(float delta);
 
 	void add_child(Menu* menu);
