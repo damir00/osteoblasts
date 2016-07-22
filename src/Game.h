@@ -14,6 +14,7 @@
 #include "SpaceBackground.h"
 #include "Terrain.h"
 #include "Quad.h"
+#include "SimpleList.h"
 
 //utils
 
@@ -395,6 +396,9 @@ class EntityManager {
 		else if(type==Component::TYPE_AI) {
 			c=new CompAI(e);
 		}
+		else {
+			printf("WARN: comp type %d not handled\n",type);
+		}
 
 		if(c) {
 			c->type=type;
@@ -407,9 +411,10 @@ class EntityManager {
 	std::vector<std::vector<Entity*> > attribute_map;
 
 
-	std::vector<Component*> components_to_remove;
-	std::vector<Entity*> entities_to_remove;
-	std::vector<Entity*> entities_to_add;
+	SimpleList<Component*> components_to_remove;
+	SimpleList<Component*> components_to_delete;
+	SimpleList<Entity*> entities_to_remove;
+	SimpleList<Entity*> entities_to_add;
 
 
 public:
@@ -547,14 +552,18 @@ public:
 	void update() {
 
 		if(entities_to_add.size()>0) {
-			for(Entity* e : entities_to_add) {
-				entities.push_back(e);
+			//for(Entity* e : entities_to_add) {
+			for(int i=0;i<entities_to_add.size();i++) {
+				entities.push_back(entities_to_add[i]);
 			}
 			entities_to_add.clear();
 		}
 
 		if(entities_to_remove.size()>0) {
-			for(Entity* e : entities_to_remove) {
+			//for(Entity* e : entities_to_remove) {
+			for(int i=0;i<entities_to_remove.size();i++) {
+				Entity* e=entities_to_remove[i];
+
 				int index=Utils::vector_index_of(entities,e);
 				if(index==-1) {
 					printf("entity not in list\n");
@@ -574,11 +583,11 @@ public:
 			entities_to_remove.clear();
 		}
 		if(components_to_remove.size()>0) {
-			std::vector<Component*> comps_to_delete;	//xxx
 
-			for(Component* c : components_to_remove) {
+			for(int i=0;i<components_to_remove.size();i++) {
+				Component* c=components_to_remove[i];
 
-				if(Utils::vector_contains(comps_to_delete,c)) {
+				if(components_to_delete.contains(c)) {
 					continue;
 				}
 
@@ -592,13 +601,14 @@ public:
 					continue;
 				}
 				component_map[c->type].erase(component_map[c->type].begin()+index);
-				comps_to_delete.push_back(c);
+				components_to_delete.push_back(c);
+			}
+
+			for(int i=0;i<components_to_delete.size();i++) {
+				delete(components_to_delete[i]);
 			}
 			components_to_remove.clear();
-
-			for(Component* c : comps_to_delete) {
-				delete(c);
-			}
+			components_to_delete.clear();
 		}
 	}
 };

@@ -9,6 +9,7 @@
 #include "Node.h"
 #include "Utils.h"
 #include "Quad.h"
+#include "SimpleList.h"
 #include "TerrainLoader.h"
 
 class TerrainIslandPoint {
@@ -18,7 +19,7 @@ public:
 	bool active;
 };
 
-
+/*
 class BoundingBox {
 public:
 	sf::Vector2f start;
@@ -44,6 +45,7 @@ public:
 		return true;
 	}
 };
+*/
 class IntBoundingBox {
 public:
 	sf::Vector2i start;
@@ -196,37 +198,6 @@ public:
 		data_size=size.x*size.y*4;
 		data=new sf::Uint8[data_size];
 		memset(data,0,data_size);
-	}
-};
-
-template<class T>
-class SimpleList {
-	std::vector<T> list;
-	int _size;
-
-public:
-	SimpleList() {
-		_size=0;
-	}
-	~SimpleList() {
-	}
-	void clear() {
-		_size=0;
-	}
-	int size() const {
-		return _size;
-	}
-	void push_back(T item) {
-		if(_size==list.size()) {
-			list.push_back(item);
-		}
-		else {
-			list[_size]=item;
-		}
-		_size++;
-	}
-	T operator[](int i) const {
-		return list[i];
 	}
 };
 
@@ -385,10 +356,11 @@ public:
 	//rect is in texture coordinate system
 	void update_area(sf::IntRect rect);
 
-	BoundingBox box;
+	Quad box;
+	sf::Vector2f box_size;
 	sf::Vector2f offset;
 
-	TerrainIsland(BoundingBox _box);
+	TerrainIsland(Quad _box);
 	void update_visual(const sf::FloatRect& rect);
 
 	void init();
@@ -405,6 +377,7 @@ class Terrain : public Node {
 	sf::Vector2f field_size;
 
 	Octree<TerrainIsland*> octree;
+	SimpleList<TerrainIsland*> loaded_islands;
 
 	void add_island(TerrainIsland* island);
 

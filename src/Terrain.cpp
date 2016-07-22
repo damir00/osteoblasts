@@ -222,9 +222,10 @@ void TerrainIsland::update_texture(const sf::IntRect& rect) {
 }
 
 
-TerrainIsland::TerrainIsland(BoundingBox _box) {
+TerrainIsland::TerrainIsland(Quad _box) {
 
 	box=_box;
+	box_size=box.size();
 	//render_state.transform.translate(box.start);
 	terrain_texture.from_sfimage(Loader::get_image("terrain/texture.png"));
 
@@ -274,8 +275,8 @@ TerrainIsland::TerrainIsland(BoundingBox _box) {
 	w=std::max(cell_size,(int)box.getSize().x/cell_size/3);
 	h=std::max(cell_size,(int)box.getSize().y/cell_size/3);
 	*/
-	w=std::max(2,(int)box.getSize().x/cell_size);
-	h=std::max(2,(int)box.getSize().y/cell_size);
+	w=std::max(2,(int)box_size.x/cell_size);
+	h=std::max(2,(int)box_size.y/cell_size);
 
 	//printf("Terrain size %dx%d\n",w,h);
 
@@ -303,11 +304,16 @@ void TerrainIsland::update_visual(const sf::FloatRect& rect) {
 
 	if(!map) return;
 
+	/*
 	sf::FloatRect world_rect=rect;
-	world_rect.left+=box.start.x;
-	world_rect.top+=box.start.y;
-
+	world_rect.left+=box.p1.x;
+	world_rect.top+=box.p1.y;
 	BoundingBox cam_bb(world_rect);
+	 */
+
+	sf::Vector2f p1=sf::Vector2f(rect.left,rect.top)+box.p1;
+	sf::Vector2f p2=p1+sf::Vector2f(rect.width,rect.height);
+	Quad cam_bb(p1,p2);
 
 	bool intersecting=box.intersects(cam_bb);
 
@@ -437,10 +443,7 @@ void TerrainIsland::load() {
 				box.getSize().y/3),
 			load_chunk_size);
 			*/
-	load_chunks.for_size(sf::Vector2f(
-				box.getSize().x,
-				box.getSize().y),
-			load_chunk_size);
+	load_chunks.for_size(box_size,load_chunk_size);
 	load_chunks.set_all(false);
 
 	texture_updates.clear();
@@ -582,20 +585,11 @@ namespace {
 
 Terrain::Terrain() {
 
-	/*
-	Node* foo=new Node();
-	foo->texture=Loader::get_texture("terrain/texture.png");
-	foo->scale=sf::Vector2f(10,10);
-	add_child(foo);
-	*/
-
 	field_size=sf::Vector2f(30000,30000);
-
 	octree.reset(Quad(sf::Vector2f(0,0),field_size),7);
 
 	sf::Vector2f rock_count(50,50);
 	sf::Vector2f cell_size(field_size.x/rock_count.x,field_size.y/rock_count.y);
-
 
 	for(int x=0;x<rock_count.x;x++) {
 		for(int y=0;y<rock_count.y;y++) {
@@ -616,7 +610,7 @@ Terrain::Terrain() {
 			p2.x=std::fmax(0,std::fmin(p2.x,field_size.x));
 			p2.y=std::fmax(0,std::fmin(p2.y,field_size.y));
 
-			TerrainIsland* island=new TerrainIsland(BoundingBox(p1,p2));	//leak
+			TerrainIsland* island=new TerrainIsland(Quad(p1,p2));	//leak
 			add_island(island);
 
 			octree.put(Quad(p1,p2),island);
@@ -656,50 +650,7 @@ Terrain::Terrain() {
 	*/
 
 }
-void Terrain::update_visual(const sf::FloatRect& _rect) {
 
-	sf::Vector2f offset;
-
-	sf::FloatRect rect=_rect;
-	//XXX use fmod
-	while(rect.left>field_size.x) {
-		rect.left-=field_size.x;
-		offset.x+=field_size.x;
-	}
-	while(rect.left<0) {
-		rect.left+=field_size.x;
-		offset.x-=field_size.x;
-	}
-	while(rect.top>field_size.y) {
-		rect.top-=field_size.y;
-		offset.y+=field_size.y;
-	}
-	while(rect.top<0) {
-		rect.top+=field_size.y;
-		offset.y-=field_size.y;
-	}
-
-	for(TerrainIsland* island : islands) {
-		sf::FloatRect r1=rect;
-
-		island->offset=offset;
-
-		if(island->box.end.x<rect.left) {
-			island->offset.x+=field_size.x;
-			r1.left-=field_size.x;
-		}
-		if(island->box.end.y<rect.top) {
-			island->offset.y+=field_size.y;
-			r1.top-=field_size.y;
-		}
-		island->pos=island->box.start+island->offset;
-
-		r1.left-=island->box.start.x;
-		r1.top-=island->box.start.y;
-
-		island->update_visual(r1);
-	}
-}
 
 namespace {
 	//handles terrain wrapping
@@ -734,6 +685,71 @@ namespace {
 	}
 }
 
+void Terrain::update_visual(const sf::FloatRect& _rect) {
+
+	sf::Vector2f offset;
+	sf::FloatRect rect=_rect;
+	//XXX use fmod
+	while(rect.left>field_size.x) {
+		rect.left-=field_size.x;
+		offset.x+=field_size.x;
+	}
+	while(rect.left<0) {
+		rect.left+=field_size.x;
+		offset.x-=field_size.x;
+	}
+	while(rect.top>field_size.y) {
+		rect.top-=field_size.y;
+		offset.y+=field_size.y;
+	}
+	while(rect.top<0) {
+		rect.top+=field_size.y;
+		offset.y-=field_size.y;
+	}
+
+	sf::Vector2f p1(_rect.left,_rect.top);
+	sf::Vector2f p2=p1+sf::Vector2f(_rect.width,_rect.height);
+	Quad query_quad(p1,p2);
+	const SimpleList<TerrainIsland*>& list=list_islands(query_quad,Quad(sf::Vector2f(0,0),field_size),octree);
+
+	for(int i=0;i<loaded_islands.size();i++) {
+		TerrainIsland* island=loaded_islands[i];
+		if(!list.contains(island)) {
+			island->unload();
+		}
+	}
+	loaded_islands.clear();
+
+	for(int i=0;i<list.size();i++) {
+		TerrainIsland* island=list[i];
+		/*
+		if(!island->box.intersects(query_quad)) {
+			continue;
+		}
+		*/
+
+		sf::FloatRect r1=rect;
+
+		island->offset=offset;
+
+		if(island->box.p2.x<rect.left) {
+			island->offset.x+=field_size.x;
+			r1.left-=field_size.x;
+		}
+		if(island->box.p2.y<rect.top) {
+			island->offset.y+=field_size.y;
+			r1.top-=field_size.y;
+		}
+		island->pos=island->box.p1+island->offset;
+
+		r1.left-=island->box.p1.x;
+		r1.top-=island->box.p1.y;
+
+		island->update_visual(r1);
+		loaded_islands.push_back(island);
+	}
+}
+
 void Terrain::damage_area(const sf::FloatRect& rect) {
 	sf::Vector2f p1=sf::Vector2f(rect.left,rect.top);
 	sf::Vector2f p2=p1+sf::Vector2f(rect.width,rect.height);
@@ -743,18 +759,10 @@ void Terrain::damage_area(const sf::FloatRect& rect) {
 		TerrainIsland* island=list[i];
 
 		sf::FloatRect r1=rect;
-		r1.left-=island->box.start.x+island->offset.x;
-		r1.top-=island->box.start.y+island->offset.y;
+		r1.left-=island->box.p1.x+island->offset.x;
+		r1.top-=island->box.p1.y+island->offset.y;
 		island->damage_area(r1);
 	}
-	/*
-	for(TerrainIsland* island : islands) {
-		sf::FloatRect r1=rect;
-		r1.left-=island->box.start.x+island->offset.x;
-		r1.top-=island->box.start.y+island->offset.y;
-		island->damage_area(r1);
-	}
-	*/
 }
 bool Terrain::check_collision(const sf::FloatRect& rect) {
 	sf::Vector2f p1=sf::Vector2f(rect.left,rect.top);
@@ -765,28 +773,17 @@ bool Terrain::check_collision(const sf::FloatRect& rect) {
 		TerrainIsland* island=list[i];
 
 		sf::FloatRect r1=rect;
-		r1.left-=island->box.start.x+island->offset.x;
-		r1.top-=island->box.start.y+island->offset.y;
+		r1.left-=island->box.p1.x+island->offset.x;
+		r1.top-=island->box.p1.y+island->offset.y;
 		if(island->check_collision(r1)) {
 			return true;
 		}
 	}
-
-/*
-	for(TerrainIsland* island : islands) {
-		sf::FloatRect r1=rect;
-		r1.left-=island->box.start.x+island->offset.x;
-		r1.top-=island->box.start.y+island->offset.y;
-		if(island->check_collision(r1)) {
-			return true;
-		}
-	}
-*/
 	return false;
 }
 bool Terrain::check_collision(const sf::Vector2f& pos) {
 	for(TerrainIsland* island : islands) {
-		if(island->check_collision(pos-island->box.start-island->offset)) {
+		if(island->check_collision(pos-island->box.p1-island->offset)) {
 			return true;
 		}
 	}
