@@ -152,6 +152,15 @@ public:
 #define COMPONENT_INDEX_SIZE 10
 #define ATTRIBUTE_INDEX_SIZE 10
 class Entity;
+
+class EntityRef {
+public:
+	Entity* entity;
+	EntityRef() {
+		entity=NULL;
+	}
+};
+
 class Component {
 public:
 
@@ -161,15 +170,20 @@ public:
 		TYPE_GUN,
 		TYPE_TIMEOUT,
 		TYPE_AI,
+		TYPE_ENGINE
 	};
 
 	Entity* entity;
 	Type type;
 
+	std::vector<EntityRef*> my_refs;	//will automatically get released when comp is removed
+
 	Component(Entity* e) {
 		entity=e;
 		type=TYPE_SHAPE;
 	}
+	virtual ~Component() {}
+	virtual void remove() {}
 };
 
 class CompShape : public Component {
@@ -232,6 +246,9 @@ public:
 		return add_graphic(g,-g.get_texture().get_size()*0.5f);
 	}
 
+	void remove() override {
+		root_node.clear_children();
+	}
 
 	void remove_node(GraphicNode* node) {
 		root_node.remove_child(node);
@@ -260,6 +277,16 @@ public:
 		fire_timeout=0.1;
 		cur_fire_timeout=0;
 	}
+};
+class CompEngine : public Component {
+public:
+	GraphicNode node;
+	CompEngine(Entity* e);
+	void set(const Graphic& g,sf::Vector2f pos) {
+		node.set_graphic(g);
+		node.pos=pos-sf::Vector2f(g.get_texture().get_size().x*0.5f,0.0);
+	}
+	void remove() override;
 };
 
 class CompHealth : public Component {
@@ -303,9 +330,12 @@ public:
 	enum AIType {
 		AI_SUICIDE,
 		AI_MELEE,
-		AI_SHOOTER
+		AI_SHOOTER,
+		AI_MISSILE
 	};
 	AIType ai_type;
+
+	EntityRef* target;
 
 	sf::Vector2f rand_offset;	//normalized [-1,1]
 	sf::Vector2f target_offset;	//world-space
@@ -313,6 +343,7 @@ public:
 	CompAI(Entity* e) : Component(e) {
 		ai_type=AI_SUICIDE;
 		rand_offset=Utils::rand_vec(-1,1);
+		target=NULL;
 	}
 };
 
@@ -321,7 +352,9 @@ public:
 	//attributes
 	enum Attribute {
 		ATTRIBUTE_REMOVE_ON_DEATH=0,
-		ATTRIBUTE_PLAYER_CONTROL
+		ATTRIBUTE_PLAYER_CONTROL,
+		ATTRIBUTE_ENEMY,		//all enemies
+		ATTRIBUTE_FRIENDLY		//all friendlies
 	};
 
 	//XXX move all members to comps/attrs
@@ -348,6 +381,7 @@ public:
 	std::vector<Component*> components;
 	std::vector<Attribute> attributes;
 
+	std::vector<EntityRef*> refs;
 
 	Entity() :
 		display(this),
@@ -396,6 +430,9 @@ class EntityManager {
 		else if(type==Component::TYPE_AI) {
 			c=new CompAI(e);
 		}
+		else if(type==Component::TYPE_ENGINE) {
+			c=new CompEngine(e);
+		}
 		else {
 			printf("WARN: comp type %d not handled\n",type);
 		}
@@ -409,7 +446,6 @@ class EntityManager {
 
 	std::vector<std::vector<Component*> > component_map;
 	std::vector<std::vector<Entity*> > attribute_map;
-
 
 	SimpleList<Component*> components_to_remove;
 	SimpleList<Component*> components_to_delete;
@@ -430,6 +466,18 @@ public:
 	}
 	void entity_remove(Entity* entity) {
 		entities_to_remove.push_back(entity);
+	}
+	EntityRef* entity_ref_create(Entity* entity) {
+		EntityRef* ref=new EntityRef();
+		ref->entity=entity;
+		entity->refs.push_back(ref);
+		return ref;
+	}
+	void entity_ref_delete(EntityRef* ref) {
+		if(ref->entity) {
+			Utils::vector_remove(ref->entity->refs,ref);
+		}
+		delete(ref);
 	}
 
 
@@ -572,12 +620,19 @@ public:
 				entities.erase(entities.begin()+index);
 
 				for(Component* c : e->components) {
+					c->remove();
+					c->entity=NULL;
 					components_to_remove.push_back(c);
 				}
 
 				for(Entity::Attribute a : e->attributes) {
 					attribute_remove(e,a);
 				}
+
+				for(EntityRef* ref : e->refs) {
+					ref->entity=NULL;
+				}
+
 				delete(e);
 			}
 			entities_to_remove.clear();
@@ -600,6 +655,15 @@ public:
 					//printf("comp not in map\n");
 					continue;
 				}
+
+				if(c->entity) {
+					c->remove();
+					c->entity=NULL;
+				}
+				for(EntityRef* ref : c->my_refs) {
+					entity_ref_delete(ref);
+				}
+
 				component_map[c->type].erase(component_map[c->type].begin()+index);
 				components_to_delete.push_back(c);
 			}
@@ -631,6 +695,8 @@ class Game : public Menu {
 	std::vector<Graphic> graphic_enemy_shooter_up;
 	std::vector<Graphic> graphic_enemy_shooter_down;
 	std::vector<Graphic> graphic_enemy_shooter_side;
+	Graphic graphic_engine;
+	std::vector<Graphic> graphic_missile;
 
 public:
 
@@ -655,6 +721,7 @@ public:
 
 
 		//populate some assets
+		graphic_engine=Graphic(Animation(Loader::get_texture("general assets/engine fire.png"),10,13,0.05));
 		const char* explosion_texture_names[]={"general assets/explosions.png",/*"explosions1.png",*/NULL};
 		for(int t=0;explosion_texture_names[t];t++) {
 			Texture tex_explosions=Loader::get_texture(explosion_texture_names[t]);
@@ -666,6 +733,10 @@ public:
 					graphic_explosion.push_back(Graphic(Animation(tex_explosions,32,32,0.05)));
 				}
 			}
+		}
+		const char* rockets_texture_names[]={"rocket1.png","rocket2.png","rocket3.png","rocket4.png",NULL};
+		for(int i=0;rockets_texture_names[i];i++) {
+			graphic_missile.push_back(Graphic(Loader::get_texture((std::string)"player ships/Assaulter/"+rockets_texture_names[i])));
 		}
 
 		const char* enemy_suicide_texture_names[]={
@@ -866,6 +937,10 @@ public:
 				CompShape::COLLISION_GROUP_TERRAIN);
 
 		entities.attribute_add(player,Entity::ATTRIBUTE_PLAYER_CONTROL);
+		entities.attribute_add(player,Entity::ATTRIBUTE_FRIENDLY);
+
+		CompEngine* e=(CompEngine*)entities.component_add(player,Component::TYPE_ENGINE);
+		e->set(graphic_engine,sf::Vector2f(0,tex.get_size().y*0.5));
 
 		for(int i=0;i<2;i++) {
 			CompGun* g=(CompGun*)entities.component_add(player,Component::TYPE_GUN);
@@ -901,12 +976,45 @@ public:
 		entity_add_timeout(bullet,CompTimeout::ACTION_REMOVE_ENTITY,2.0f);
 		return bullet;
 	}
+	Entity* create_missile(const Graphic& g,Entity* target,bool player_side) {
+		Entity* missile=entities.entity_create();
+		missile->display.add_graphic_center(g);
+		missile->shape.add_quad_center(g.get_texture().get_size());
+
+		if(player_side) {
+			missile->shape.collision_group=CompShape::COLLISION_GROUP_PLAYER_BULLET;
+			missile->shape.collision_mask=(CompShape::COLLISION_GROUP_TERRAIN|
+					CompShape::COLLISION_GROUP_ENEMY);
+		}
+		else {
+			missile->shape.collision_group=CompShape::COLLISION_GROUP_ENEMY_BULLET;
+			missile->shape.collision_mask=(CompShape::COLLISION_GROUP_TERRAIN|
+					CompShape::COLLISION_GROUP_PLAYER);
+		}
+		missile->player_side=player_side;
+
+		entities.attribute_add(missile,Entity::ATTRIBUTE_REMOVE_ON_DEATH);
+		entity_add_timeout(missile,CompTimeout::ACTION_REMOVE_ENTITY,10.0f);
+
+		CompAI* ai=(CompAI*)entities.component_add(missile,Component::TYPE_AI);
+		ai->ai_type=CompAI::AI_MISSILE;
+		if(target) {
+			ai->target=entities.entity_ref_create(target);
+			ai->my_refs.push_back(ai->target);
+		}
+
+		CompEngine* eng=(CompEngine*)entities.component_add(missile,Component::TYPE_ENGINE);
+		eng->set(graphic_engine,sf::Vector2f(0,g.get_texture().get_size().y*0.5));
+
+		return missile;
+	}
 
 	Entity* create_enemy(const Graphic& g) {
 		Entity* k=entities.entity_create();
 		k->display.add_graphic_center(g);
 		k->shape.add_quad_center(g.get_texture().get_size());
 		entities.attribute_add(k,Entity::ATTRIBUTE_REMOVE_ON_DEATH);
+		entities.attribute_add(k,Entity::ATTRIBUTE_ENEMY);
 
 		k->shape.collision_group=CompShape::COLLISION_GROUP_ENEMY;
 		k->shape.collision_mask=(CompShape::COLLISION_GROUP_TERRAIN|
@@ -985,6 +1093,31 @@ public:
 		}
 	}
 
+	void launch_missiles(int count,sf::Vector2f pos,bool player_side) {
+
+		const std::vector<Entity*>& targets=entities.attribute_list_entities(
+				player_side ? Entity::ATTRIBUTE_ENEMY : Entity::ATTRIBUTE_FRIENDLY);
+
+		std::vector<Entity*> targeted;
+
+		for(Entity * e : targets) {
+			if(Utils::vec_length_fast(pos-e->pos)<300*300) {
+				targeted.push_back(e);
+			}
+		}
+
+		for(int i=0;i<count;i++) {
+			Entity* target=NULL;
+			if(targeted.size()>0) {
+				target=Utils::vector_rand(targeted);
+			}
+
+			Entity* e=create_missile(Utils::vector_rand(graphic_missile),target,player_side);
+			e->pos=pos;
+			entity_add(e);
+		}
+	}
+
 	void event_frame(float dt) {
 		if(!node.visible || !player) return;
 
@@ -1055,6 +1188,16 @@ public:
 		}
 
 		//systems
+		for(Component* ccomp : entities.component_list(Component::TYPE_ENGINE)) {
+			CompEngine* comp=(CompEngine*)ccomp;
+			if(Utils::vec_length_fast(comp->entity->vel)>50*50) {
+				comp->node.visible=true;
+				comp->node.update(dt);
+			}
+			else {
+				comp->node.visible=false;
+			}
+		}
 		for(Component* ccomp : entities.component_list(Component::TYPE_TIMEOUT)) {
 			CompTimeout* comp=(CompTimeout*)ccomp;
 			comp->timeout-=dt;
@@ -1067,33 +1210,43 @@ public:
 		}
 		for(Component* ccomp : entities.component_list(Component::TYPE_AI)) {
 			CompAI* comp=(CompAI*)ccomp;
-			Entity* target=player;
 
-			sf::Vector2f aim_pos=target->pos+target->vel*0.5f;
+			if(comp->ai_type==CompAI::AI_MELEE || comp->ai_type==CompAI::AI_SHOOTER) {
+				Entity* target=player;
 
-			//movement
-			float speed=150.0f;
-			float acc=200.0f;
-			sf::Vector2f diff=aim_pos+comp->target_offset-comp->entity->pos;
-			float dist=Utils::dist(diff);
-			diff+=comp->rand_offset*dist*0.3f;
-			sf::Vector2f vel=diff/dist*speed;
-			comp->entity->vel.x=Utils::num_move_towards(comp->entity->vel.x,vel.x,dt*acc);
-			comp->entity->vel.y=Utils::num_move_towards(comp->entity->vel.y,vel.y,dt*acc);
+				sf::Vector2f aim_pos=target->pos+target->vel*0.5f;
 
-			//other
-			if(comp->ai_type==CompAI::AI_MELEE) {
-
-			}
-			else if(comp->ai_type==CompAI::AI_SHOOTER) {
-				/*
-				comp->entity->fire_gun=(
-						std::abs(target->pos.x-comp->entity->pos.x)<70 &&
-						target->pos.y<comp->entity->pos.y &&
-						std::abs(target->pos.y-comp->entity->pos.y)<200);
-				*/
+				//movement
+				float speed=150.0f;
+				float acc=200.0f;
 				sf::Vector2f diff=aim_pos+comp->target_offset-comp->entity->pos;
-				comp->entity->fire_gun=(std::abs(diff.x)<70 && std::abs(diff.y)<70);
+				float dist=Utils::dist(diff);
+				diff+=comp->rand_offset*dist*0.3f;
+				sf::Vector2f vel=diff/dist*speed;
+
+				comp->entity->vel.x=Utils::num_move_towards(comp->entity->vel.x,vel.x,dt*acc);
+				comp->entity->vel.y=Utils::num_move_towards(comp->entity->vel.y,vel.y,dt*acc);
+
+				//other
+				if(comp->ai_type==CompAI::AI_MELEE) {
+
+				}
+				else if(comp->ai_type==CompAI::AI_SHOOTER) {
+					sf::Vector2f diff=aim_pos+comp->target_offset-comp->entity->pos;
+					comp->entity->fire_gun=(std::abs(diff.x)<70 && std::abs(diff.y)<70);
+				}
+			}
+			else if(comp->ai_type==CompAI::AI_MISSILE) {
+				float angle_vel=M_PI*1.0;
+				float vel=200;
+
+				float angle=Utils::deg_to_rad(comp->entity->angle);
+				if(comp->target && comp->target->entity) {
+					float angle_delta=Utils::vec_angle(comp->entity->pos-comp->target->entity->pos);
+					angle=Utils::angle_normalize(Utils::angle_move_towards(angle,angle_delta,dt*angle_vel));
+				}
+				comp->entity->angle=Utils::rad_to_deg(angle);
+				comp->entity->vel=Utils::vec_for_angle(angle,vel);
 			}
 
 		}
@@ -1153,19 +1306,19 @@ public:
 				trigger_message(action_esc);
 				return true;
 			}
-			//test
-			if(c==sf::Keyboard::Q) {
-
+			if(c==sf::Keyboard::Q) {	//missiles
+				launch_missiles(3,player->pos,player->player_side);
 			}
-			if(c==sf::Keyboard::Z) {
+			if(c==sf::Keyboard::Z) {	//zoom mode
 				zoom_mode=(zoom_mode+1)%2;
-				node.scale.x=node.scale.y=(zoom_mode+1);
 
 				if(zoom_mode==0) {
-					pointer_pos*=2.0f;
+					node.scale.x=node.scale.y=1.0f;
+					pointer_pos*=5.0f;
 				}
 				else {
-					pointer_pos*=0.5f;
+					node.scale.x=node.scale.y=5.0f;
+					pointer_pos/=5.0f;
 				}
 			}
 		}

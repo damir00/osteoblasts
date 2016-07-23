@@ -44,6 +44,8 @@ public:
 	void frame(sf::Vector2f pos,sf::FloatRect area) {
 		sf::IntRect area_norm=norm_rect(pos,area);
 
+		//TODO: not checking item dimensions
+
 		//remove old
 		float remove_space=spacing*2;
 		for(std::unordered_map<std::string,Node*>::iterator it=items_map.begin();it!=items_map.end();) {
@@ -52,7 +54,6 @@ public:
 			if(item->pos.x<pos.x-remove_space || item->pos.x>pos.x+area.width+remove_space ||
 				item->pos.y<pos.y-remove_space || item->pos.y>pos.y+area.height+remove_space) {
 
-				//GameRes::cache_sprite.put(item->sprite);
 				remove_child(item);
 				delete(item);
 				it=items_map.erase(it);
@@ -63,7 +64,6 @@ public:
 		}
 
 		//add new
-		float r=spacing*0.5;
 		for(int xi=0;xi<=area_norm.width;xi++) {
 			int x=xi+area_norm.left;
 
@@ -81,8 +81,8 @@ public:
 				if(items_map.count(hash)>0) continue;
 
 				Node* item=new Node();	//memleak
-				item->pos.x=(float)x*spacing+Utils::rand_range(-r,r);
-				item->pos.y=(float)y*spacing+Utils::rand_range(-r,r);
+				item->pos.x=(float)x*spacing+Utils::rand_range(0,spacing);
+				item->pos.y=(float)y*spacing+Utils::rand_range(0,spacing);
 				if(textures.size()>0) {
 					item->texture=Utils::vector_rand(textures);
 				}

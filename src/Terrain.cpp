@@ -486,10 +486,10 @@ void TerrainIsland::damage_area(const sf::FloatRect& rect) {
 
 	//float mult=1.0f/(cell_size*3.0);
 	float mult=1.0f/(cell_size);
-	int x1=Utils::clampi(0,w,std::floor( rect.left *mult ));
-	int y1=Utils::clampi(0,h,std::floor( rect.top  *mult ));
-	int x2=Utils::clampi(0,w,std::ceil( (rect.left+rect.width) *mult ));
-	int y2=Utils::clampi(0,h,std::ceil( (rect.top+rect.height) *mult ));
+	int x1=Utils::clampi(0,w,std::floor( rect.left *mult+0.5f ));
+	int y1=Utils::clampi(0,h,std::floor( rect.top  *mult+0.5f ));
+	int x2=Utils::clampi(0,w,std::ceil( (rect.left+rect.width) *mult+0.5f ));
+	int y2=Utils::clampi(0,h,std::ceil( (rect.top+rect.height) *mult+0.5f ));
 
 	//for(int i=0;i<w*h;i++) map[i].active=false;
 
@@ -521,10 +521,10 @@ bool TerrainIsland::check_collision(const sf::FloatRect& rect) {
 
 	//float mult=1.0f/(cell_size*3.0);
 	float mult=1.0f/(cell_size);
-	int x1=Utils::clampi(0,w,std::floor( rect.left *mult ));
-	int y1=Utils::clampi(0,h,std::floor( rect.top  *mult ));
-	int x2=Utils::clampi(0,w,std::ceil( (rect.left+rect.width) *mult ));
-	int y2=Utils::clampi(0,h,std::ceil( (rect.top+rect.height) *mult ));
+	int x1=Utils::clampi(0,w,std::floor( rect.left *mult+0.5f ));
+	int y1=Utils::clampi(0,h,std::floor( rect.top  *mult+0.5f ));
+	int x2=Utils::clampi(0,w,std::ceil( (rect.left+rect.width) *mult+0.5f ));
+	int y2=Utils::clampi(0,h,std::ceil( (rect.top+rect.height) *mult+0.5f ));
 
 	for(int x=x1;x<x2;x++) {
 		for(int y=y1;y<y2;y++) {

@@ -100,6 +100,10 @@ bool Menu::trigger_message(int msg) {
 }
 
 void Menu::frame(float delta) {
+	if(!node.visible) {
+		return;
+	}
+
 	for(Menu* child : children) {
 		child->frame(delta);
 	}

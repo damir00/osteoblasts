@@ -373,9 +373,17 @@ public:
 	public:
 		float duration;
 
+		enum Event {
+			EVENT_TRANSITION_START,
+			EVENT_TRANSITION_END
+		};
+		typedef std::function<void(Event,Menu* to_menu)> Callback;
+		Callback callback;
+
 		Transitioner() {
 			_active=false;
 			duration=100;
+			callback=NULL;
 		}
 		void frame(float dt) {
 			if(!active()) {
@@ -386,6 +394,9 @@ public:
 				anim=1.0;
 				_active=false;
 				menu_out->node.visible=false;
+				if(callback) {
+					callback(EVENT_TRANSITION_END,menu_in);
+				}
 			}
 			update_anim();
 		}
@@ -401,6 +412,10 @@ public:
 			menu_out->node.visible=true;
 			menu_in->node.visible=true;
 			update_anim();
+
+			if(callback) {
+				callback(EVENT_TRANSITION_START,menu_in);
+			}
 		}
 	};
 	Transitioner transitioner;
@@ -446,6 +461,15 @@ public:
 		page_first.btn_settings->action=MSG_BTN_SETTINGS;
 		page_settings.btn_back->action=MSG_SETTINGS_BACK;
 		menu_game.action_esc=MSG_GAME_ESC;
+
+		transitioner.callback=([this](Transitioner::Event e,Menu* m) {
+			bool show=true;
+			if(e==Transitioner::EVENT_TRANSITION_END && m==&menu_game) {
+				show=false;
+			}
+			bg.node.visible=show;
+			header.node.visible=show;
+		});
 	}
 	void event_resize() override {
 		sf::Vector2f menu_size(960,540);
@@ -470,7 +494,12 @@ public:
 		header.node.pos=offset;
 		header.node.scale=scale_f;
 
+		/*
+		menu_game.node.pos=sf::Vector2f(200,200);
+		menu_game.resize(size-sf::Vector2f(400,400));
+		*/
 		menu_game.resize(size);
+
 		bg.resize(size);
 	}
 	bool event_message(int msg) override {

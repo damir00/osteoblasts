@@ -29,9 +29,35 @@ public:
 		float r=deg_to_rad(angle);
 		return sf::Vector2f(cos(r)*len,sin(r)*len);
 	}
+	static sf::Vector2f vec_for_angle(float angle,float len=1.0f) {
+		return sf::Vector2f(cos(angle)*len,sin(angle)*len);
+	}
+	static float vec_length(const sf::Vector2f& v) { return sqrt(v.x*v.x+v.y*v.y); }
+	static float vec_length_fast(const sf::Vector2f& v) { return (v.x*v.x+v.y*v.y); }
 
 	static float rad_to_deg(float rad) { return rad*(180.0f/M_PI); }
 	static float deg_to_rad(float deg) { return deg*(M_PI/180.0f); }
+
+
+	static float angle_move_towards(float start,float end,float limit) {
+		float delta=end-start;
+		if(delta>0) {
+			if(delta<M_PI) return start+limit;
+			return start-limit;
+		}
+		if(delta<-M_PI) return start+limit;
+		return start-limit;
+	}
+	static float num_wrap(float x,float mod) {
+		return x-mod*std::floor(x/mod);
+	}
+	static float angle_normalize(float angle) {
+		return num_wrap(angle,2.0f*M_PI);
+	}
+	static float vec_angle(sf::Vector2f vec) {
+		return std::atan2(vec.y,vec.x)+M_PI;
+	}
+
 
 	static float dist(float dx,float dy) { return sqrt(dx*dx+dy*dy); }
 	static float dist_fast(float dx,float dy) { return dx*dx+dy*dy; }
