@@ -202,6 +202,7 @@ public:
 					}
 					break;
 					*/
+				case sf::Event::KeyReleased:
 				case sf::Event::MouseMoved:
 				case sf::Event::MouseButtonPressed:
 				case sf::Event::MouseButtonReleased:

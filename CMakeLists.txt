@@ -8,9 +8,10 @@ if(WIN32)
 	set(PLATFORM "win32")
 	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-subsystem,windows")
 else()
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wreturn-type")	#warn on no return
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wreturn-type")		#warn on no return
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall")	#warnings
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall")			#warnings
+	#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --Wsuggest-override")	#override
 endif()
 
 

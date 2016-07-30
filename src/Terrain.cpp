@@ -1,5 +1,6 @@
 #include <noise/noise.h>
 #include <cmath>
+#include <algorithm>
 
 #include "Loader.h"
 #include "Terrain.h"
@@ -605,10 +606,10 @@ Terrain::Terrain() {
 			sf::Vector2f p1(Utils::rand_range(bp1.x,bp1.x+(bp2.x-bp1.x)*0.4),Utils::rand_range(bp1.y,bp1.y+(bp2.y-bp1.y)*0.4));
 			sf::Vector2f p2(Utils::rand_range(bp1.x+(bp2.x-bp1.x)*0.6,bp2.x),Utils::rand_range(bp1.y+(bp2.y-bp1.y)*0.6,bp2.y));
 
-			p1.x=std::fmax(0,std::fmin(p1.x,field_size.x));
-			p1.y=std::fmax(0,std::fmin(p1.y,field_size.y));
-			p2.x=std::fmax(0,std::fmin(p2.x,field_size.x));
-			p2.y=std::fmax(0,std::fmin(p2.y,field_size.y));
+			p1.x=std::max(0.0f,std::min(p1.x,field_size.x));
+			p1.y=std::max(0.0f,std::min(p1.y,field_size.y));
+			p2.x=std::max(0.0f,std::min(p2.x,field_size.x));
+			p2.y=std::max(0.0f,std::min(p2.y,field_size.y));
 
 			TerrainIsland* island=new TerrainIsland(Quad(p1,p2));	//leak
 			add_island(island);

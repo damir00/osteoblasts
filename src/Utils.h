@@ -22,7 +22,7 @@ public:
 		return sf::Vector2f(rect.left+rect.width*0.5,rect.top+rect.height*0.5);
 	}
 	static sf::Vector2f vec_normalize(const sf::Vector2f& vec) {
-		float len=sqrt(vec.x*vec.x+vec.y*vec.y);
+		float len=sqrtf(vec.x*vec.x+vec.y*vec.y);
 		return sf::Vector2f(vec.x/len,vec.y/len);
 	}
 	static sf::Vector2f vec_for_angle_deg(float angle,float len=1.0f) {
@@ -32,8 +32,18 @@ public:
 	static sf::Vector2f vec_for_angle(float angle,float len=1.0f) {
 		return sf::Vector2f(cos(angle)*len,sin(angle)*len);
 	}
-	static float vec_length(const sf::Vector2f& v) { return sqrt(v.x*v.x+v.y*v.y); }
+	static float vec_length(const sf::Vector2f& v) { return sqrtf(v.x*v.x+v.y*v.y); }
 	static float vec_length_fast(const sf::Vector2f& v) { return (v.x*v.x+v.y*v.y); }
+	static sf::Vector2f vec_cap_length(const sf::Vector2f& v,float l_min,float l_max) {
+		float len=vec_length_fast(v);
+		if(len<l_min*l_min) {
+			return v*(l_min/sqrtf(len));
+		}
+		if(len>l_max*l_max) {
+			return v*(l_max/sqrtf(len));
+		}
+		return v;
+	}
 
 	static float rad_to_deg(float rad) { return rad*(180.0f/M_PI); }
 	static float deg_to_rad(float deg) { return deg*(M_PI/180.0f); }
@@ -59,9 +69,9 @@ public:
 	}
 
 
-	static float dist(float dx,float dy) { return sqrt(dx*dx+dy*dy); }
+	static float dist(float dx,float dy) { return sqrtf(dx*dx+dy*dy); }
 	static float dist_fast(float dx,float dy) { return dx*dx+dy*dy; }
-	static float dist(const sf::Vector2f& v) { return sqrt(v.x*v.x+v.y*v.y); }
+	static float dist(const sf::Vector2f& v) { return sqrtf(v.x*v.x+v.y*v.y); }
 
 	static float rand_float() { return (float)rand()/RAND_MAX; }
 	static float rand_range(float low,float high) { return low+rand_float()*(high-low); }

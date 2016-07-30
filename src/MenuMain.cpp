@@ -1,5 +1,6 @@
 #include <memory>
 #include <vector>
+#include <functional>
 
 #include <noise/noise.h>
 
@@ -383,7 +384,6 @@ public:
 		Transitioner() {
 			_active=false;
 			duration=100;
-			callback=NULL;
 		}
 		void frame(float dt) {
 			if(!active()) {

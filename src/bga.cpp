@@ -96,15 +96,14 @@ public:
 #ifdef WIN32
 #include <Windows.h>
 int WinMain(HINSTANCE hInstance,HINSTANCE hPrevInstance,LPSTR lpCmdLine,int nCmdShow) {
+
+	int argc=1;
+	char* argv[]={"bga.exe"};
+
 #else
 int main(int argc,char** argv) {
 #endif
 	printf("Welcome to BGA!\n");
-
-
-	//std::unique_ptr<Foo> flop(new Foo());
-	//return 0;
-
 
 	Loader::init();
 
@@ -114,7 +113,9 @@ int main(int argc,char** argv) {
 	main_menu.set_quit_action(f.MESSAGE_QUIT);
 	f.get_root_menu()->add_child(&main_menu);
 
-	//main_menu.go_game();
+	if(argc>1 && (std::string)argv[1]=="-s") {
+		main_menu.go_game();
+	}
 
 	f.run();
 

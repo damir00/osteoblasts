@@ -16,6 +16,7 @@ MenuEvent MenuEvent::adapted(Menu* menu) const {
 //Menu
 Menu::Menu() {
 	pressed=false;
+	pressed_right=false;
 	hover=false;
 	parent=NULL;
 }
@@ -68,14 +69,24 @@ bool Menu::send_event(const MenuEvent& event) {
 		}
 		case sf::Event::MouseButtonPressed:
 			if(point_inside(event.pos)) {
-				pressed=true;
+				if(event.event.mouseButton.button==sf::Mouse::Left) {
+					pressed=true;
+				}
+				else if(event.event.mouseButton.button==sf::Mouse::Right) {
+					pressed_right=true;
+				}
 			}
 			break;
 		case sf::Event::MouseButtonReleased:
-			if(pressed && point_inside(event.pos)) {
-				event_click(event.pos);
+			if(event.event.mouseButton.button==sf::Mouse::Left) {
+				if(pressed && point_inside(event.pos)) {
+					event_click(event.pos);
+				}
+				pressed=false;
 			}
-			pressed=false;
+			else if(event.event.mouseButton.button==sf::Mouse::Right){
+				pressed_right=false;
+			}
 			break;
 		default:
 			break;

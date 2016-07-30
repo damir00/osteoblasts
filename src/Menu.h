@@ -50,6 +50,7 @@ public:
 	sf::Vector2f size;
 	bool hover;
 	bool pressed;
+	bool pressed_right;
 	sf::Vector2f pointer_pos;
 
 	Menu();

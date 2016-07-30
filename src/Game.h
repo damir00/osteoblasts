@@ -262,7 +262,8 @@ public:
 };
 class CompGun : public Component {
 public:
-	bool fire;
+	uint8_t group;
+	//bool fire;
 	Texture texture;
 	float bullet_speed;
 	float angle;	//deg
@@ -270,12 +271,20 @@ public:
 	float cur_fire_timeout;
 	sf::Vector2f pos;
 
+	//shotgun
+	float angle_spread;
+	int bullet_count;
+
 	CompGun(Entity* e) :  Component(e) {
-		fire=false;
+		//fire=false;
+		group=0;
 		bullet_speed=700;
 		angle=0;
 		fire_timeout=0.1;
 		cur_fire_timeout=0;
+
+		angle_spread=0;
+		bullet_count=1;
 	}
 };
 class CompEngine : public Component {
@@ -374,7 +383,7 @@ public:
 	CompHealth health;
 
 	bool player_side;
-	bool fire_gun;
+	bool fire_gun[8];
 
 	//Component* components_indexed[COMPONENT_INDEX_SIZE];
 	//std::vector<Component*> components_unindexed;
@@ -393,7 +402,7 @@ public:
 		}
 		*/
 		angle=270;	//point up by default
-		fire_gun=false;
+		for(int i=0;i<8;i++) fire_gun[i]=false;
 		player_side=false;
 	}
 };
@@ -684,8 +693,6 @@ class Game : public Menu {
 
 	Terrain terrain;
 
-	sf::Vector2f tmp;
-
 	EntityManager entities;
 
 	Entity* player;
@@ -698,11 +705,11 @@ class Game : public Menu {
 	Graphic graphic_engine;
 	std::vector<Graphic> graphic_missile;
 
+	float time_scale;
+
 public:
 
 	int action_esc;
-
-	//Node cam_border[4];
 
 	int zoom_mode;
 	//bool snap_sprites_to_pixels;
@@ -710,6 +717,7 @@ public:
 	Game() {
 		action_esc=0;
 		zoom_mode=1;
+		time_scale=1.0;
 		//snap_sprites_to_pixels=true;
 
 		//init
@@ -880,12 +888,20 @@ public:
 			node_game.add_child(&cam_border[i]);
 		}
 		*/
+
 		player=NULL;
+
 	}
+	//Node cam_border[4];
+	//Node tmp_node;
+
 	~Game() {
 
 	}
 	void start_level() {
+		//reset
+		time_scale=1.0;
+
 		//cleanup
 		for(Entity* e : entities.entities) {
 			entity_remove(e);
@@ -942,6 +958,7 @@ public:
 		CompEngine* e=(CompEngine*)entities.component_add(player,Component::TYPE_ENGINE);
 		e->set(graphic_engine,sf::Vector2f(0,tex.get_size().y*0.5));
 
+		//machine guns
 		for(int i=0;i<2;i++) {
 			CompGun* g=(CompGun*)entities.component_add(player,Component::TYPE_GUN);
 			g->texture=Loader::get_texture("player ships/Assaulter/projectile1.png");
@@ -950,7 +967,30 @@ public:
 			g->bullet_speed=400;
 			g->fire_timeout=0.06;
 			g->angle=0;
+			g->group=1;
 		}
+		//shotguns
+		for(int i=0;i<2;i++) {
+			CompGun* g=(CompGun*)entities.component_add(player,Component::TYPE_GUN);
+			g->texture=Loader::get_texture("player ships/Assaulter/projectile2.png");
+			g->pos.x=-29+i*29*2;
+			g->pos.y=-19;
+			g->bullet_speed=400;
+			g->fire_timeout=0.6;
+			g->angle=0;
+			g->angle_spread=60;
+			g->bullet_count=5;
+		}
+		//laser
+		CompGun* g=(CompGun*)entities.component_add(player,Component::TYPE_GUN);
+		g->texture=Loader::get_texture("player ships/Assaulter/railgun.png");
+		g->pos.x=0;
+		g->pos.y=-19;
+		g->bullet_speed=800;
+		g->fire_timeout=0.02;
+		g->angle=0;
+		g->group=2;
+
 		player->player_side=true;
 
 		return player;
@@ -1113,23 +1153,34 @@ public:
 			}
 
 			Entity* e=create_missile(Utils::vector_rand(graphic_missile),target,player_side);
+			e->angle=(float)i/(float)count*360.0f;
 			e->pos=pos;
 			entity_add(e);
 		}
 	}
 
-	void event_frame(float dt) {
+	sf::Vector2f screen_to_game_pos(const sf::Vector2f& p) {
+		sf::Vector2f r;
+		r.x=(p.x-node_game.pos.x)/node_game.scale.x;
+		r.y=(p.y-node_game.pos.y)/node_game.scale.y;
+		return r;
+	}
+
+	void event_frame(float dt) override {
 		if(!node.visible || !player) return;
 
 		//operating in seconds!
 		dt*=0.001f;
+		dt*=time_scale;
 
-		sf::Vector2f game_size=sf::Vector2f(size.x/node.scale.x,size.y/node.scale.y);
+		sf::Vector2f game_size=sf::Vector2f(size.x/node_game.scale.x,size.y/node_game.scale.y);
 
 		//input
 		for(Entity* e : entities.attribute_list_entities(Entity::ATTRIBUTE_PLAYER_CONTROL)) {
-			e->vel=(pointer_pos-game_size*0.5f)*3.0f;
-			e->fire_gun=pressed;
+			e->vel=(pointer_pos-size*0.5f)*3.0f;
+			e->vel=Utils::vec_cap_length(e->vel,0,200);
+			e->fire_gun[0]=pressed;
+			e->fire_gun[1]=pressed_right;
 		}
 
 		//sim
@@ -1233,7 +1284,7 @@ public:
 				}
 				else if(comp->ai_type==CompAI::AI_SHOOTER) {
 					sf::Vector2f diff=aim_pos+comp->target_offset-comp->entity->pos;
-					comp->entity->fire_gun=(std::abs(diff.x)<70 && std::abs(diff.y)<70);
+					comp->entity->fire_gun[0]=(std::abs(diff.x)<70 && std::abs(diff.y)<70);
 				}
 			}
 			else if(comp->ai_type==CompAI::AI_MISSILE) {
@@ -1256,14 +1307,21 @@ public:
 			if(g->cur_fire_timeout>0) {
 				g->cur_fire_timeout-=dt;
 			}
-			if(!g->entity->fire_gun || g->cur_fire_timeout>0) continue;
+			if(!g->entity->fire_gun[g->group] || g->cur_fire_timeout>0) continue;
 			g->cur_fire_timeout=g->fire_timeout;
 
-			Entity* bullet=create_bullet(g->texture,g->entity->player_side);
-			bullet->pos=g->entity->pos+g->pos;
-			bullet->angle=g->entity->angle+g->angle;
-			bullet->vel=Utils::vec_for_angle_deg(bullet->angle,g->bullet_speed);
-			entity_add(bullet);
+			for(int i=0;i<g->bullet_count;i++) {
+				float angle=0;
+				if(g->bullet_count>1) {
+					angle=g->angle-g->angle_spread*0.5+(float)i/((float)g->bullet_count-1)*g->angle_spread;
+				}
+
+				Entity* bullet=create_bullet(g->texture,g->entity->player_side);
+				bullet->pos=g->entity->pos+g->pos;
+				bullet->angle=g->entity->angle+angle;
+				bullet->vel=Utils::vec_for_angle_deg(bullet->angle,g->bullet_speed);
+				entity_add(bullet);
+			}
 		}
 
 		entities.update();
@@ -1283,15 +1341,17 @@ public:
 
 		sf::Vector2f camera_offset=camera_pos-game_size*0.5f;
 
-		node_game.pos=-camera_offset;
+		node_game.pos=-camera_offset*node_game.scale.x;
 
 		sf::FloatRect camera_rect=sf::FloatRect(camera_pos.x-game_size.x/2.0f,camera_pos.y-game_size.y/2.0f,game_size.x,game_size.y);
+
 		/*
 		cam_border[0].pos=sf::Vector2f(camera_rect.left,camera_rect.top);
 		cam_border[1].pos=sf::Vector2f(camera_rect.left+camera_rect.width,camera_rect.top);
 		cam_border[2].pos=sf::Vector2f(camera_rect.left+camera_rect.width,camera_rect.top+camera_rect.height);
 		cam_border[3].pos=sf::Vector2f(camera_rect.left,camera_rect.top+camera_rect.height);
 		*/
+
 
 		background.update(camera_rect);
 		terrain.update_visual(camera_rect);
@@ -1306,28 +1366,47 @@ public:
 				trigger_message(action_esc);
 				return true;
 			}
-			if(c==sf::Keyboard::Q) {	//missiles
+			else if(c==sf::Keyboard::Q) {	//missiles
 				launch_missiles(3,player->pos,player->player_side);
 			}
-			if(c==sf::Keyboard::Z) {	//zoom mode
+			else if(c==sf::Keyboard::W) {	//laser
+				player->fire_gun[2]=true;
+			}
+			else if(c==sf::Keyboard::E) {	//teleport
+				player->pos=screen_to_game_pos(pointer_pos);
+			}
+			else if(c==sf::Keyboard::Space) {
+				time_scale=0.3;
+			}
+
+			else if(c==sf::Keyboard::Z) {	//zoom mode
 				zoom_mode=(zoom_mode+1)%2;
 
 				if(zoom_mode==0) {
-					node.scale.x=node.scale.y=1.0f;
-					pointer_pos*=5.0f;
+					node_game.scale=sf::Vector2f(1,1);
 				}
 				else {
-					node.scale.x=node.scale.y=5.0f;
-					pointer_pos/=5.0f;
+					node_game.scale=sf::Vector2f(2,2);
 				}
+				background.scale=node_game.scale;
 			}
 		}
+		else if(event.event.type==sf::Event::KeyReleased) {
+			sf::Keyboard::Key c=event.event.key.code;
 
+			if(c==sf::Keyboard::W) {	//laser
+				player->fire_gun[2]=false;
+			}
+			else if(c==sf::Keyboard::Space) {
+				time_scale=1.0;
+			}
+		}
 
 		return false;
 	}
 	void event_resize() override {
-		node.scale.x=node.scale.y=(zoom_mode+1);
+		node_game.scale.x=node_game.scale.y=(zoom_mode+1);
+		background.scale=node_game.scale;
 	}
 };
 
