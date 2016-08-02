@@ -25,6 +25,8 @@ public:
 	static sf::Font* get_font(const std::string &path);
 	static sf::Font* get_menu_font() { return get_font("font/BMjapan.TTF"); }
 
+	static sf::Shader* get_shader(const std::string& path);
+
 	static void clear_all();
 };
 

@@ -2,9 +2,10 @@
 #ifndef _BGA_GAME_H_
 #define _BGA_GAME_H_
 
-#include <vector>
 #include <cstdint>
 #include <memory>
+#include <vector>
+#include <unordered_set>
 
 #include <SFML/System.hpp>
 
@@ -15,6 +16,7 @@
 #include "Terrain.h"
 #include "Quad.h"
 #include "SimpleList.h"
+#include "Easing.h"
 
 //utils
 
@@ -170,19 +172,27 @@ public:
 		TYPE_GUN,
 		TYPE_TIMEOUT,
 		TYPE_AI,
-		TYPE_ENGINE
+		TYPE_ENGINE,
+		TYPE_TELEPORTATION,
+		TYPE_SHOW_DAMAGE
+	};
+	enum Event {
+		EVENT_FRAME,
+		EVENT_DAMAGED
 	};
 
 	Entity* entity;
 	Type type;
 
 	std::vector<EntityRef*> my_refs;	//will automatically get released when comp is removed
+	std::unordered_set<Event,std::hash<short> > events;
 
 	Component(Entity* e) {
 		entity=e;
 		type=TYPE_SHAPE;
 	}
 	virtual ~Component() {}
+	virtual void insert() {}
 	virtual void remove() {}
 };
 
@@ -202,10 +212,12 @@ public:
 	uint8_t collision_mask;
 
 	Quad bbox;
+	bool enabled;
 
 	CompShape(Entity* e) : Component(e) {
 		collision_group=1;
 		collision_mask=0xff;
+		enabled=true;
 	}
 
 	void add_quad_center(sf::Vector2f size) {
@@ -232,8 +244,10 @@ public:
 		n->pos=pos;
 		return n;
 	}
-	GraphicNode* add_texture_center(const Texture& tex) {
-		return add_texture(tex,-tex.get_size()*0.5f);
+	GraphicNode* add_texture_center(const Texture& tex,float scale=1.0) {
+		GraphicNode* node=add_texture(tex,-tex.get_size()*scale*0.5f);
+		node->scale=sf::Vector2f(scale,scale);
+		return node;
 	}
 
 	GraphicNode* add_graphic(const Graphic& g,sf::Vector2f pos) {
@@ -242,8 +256,10 @@ public:
 		n->pos=pos;
 		return n;
 	}
-	GraphicNode* add_graphic_center(const Graphic& g) {
-		return add_graphic(g,-g.get_texture().get_size()*0.5f);
+	GraphicNode* add_graphic_center(const Graphic& g,float scale=1.0) {
+		GraphicNode* node=add_graphic(g,-g.get_texture().get_size()*scale*0.5f);
+		node->scale=sf::Vector2f(scale,scale);
+		return node;
 	}
 
 	void remove() override {
@@ -355,6 +371,36 @@ public:
 		target=NULL;
 	}
 };
+class CompTeleportation : public Component {
+public:
+	sf::Vector2f origin;
+	sf::Vector2f destination;
+	Node origin_node;
+	float anim;
+	float anim_duration;
+
+	CompTeleportation(Entity* e) : Component(e) {
+		anim=0.0f;
+		anim_duration=0.0f;
+	}
+};
+class CompShowDamage : public Component {
+public:
+	enum DamageType {
+		DAMAGE_TYPE_BLINK,
+		DAMAGE_TYPE_SCREEN_EFFECT
+	};
+	DamageType damage_type;
+
+	float time_max;
+	float time;
+
+	CompShowDamage(Entity* e) : Component(e) {
+		damage_type=DAMAGE_TYPE_BLINK;
+		time_max=0.5f;
+		time=0.0f;
+	}
+};
 
 class Entity {
 public:
@@ -363,7 +409,7 @@ public:
 		ATTRIBUTE_REMOVE_ON_DEATH=0,
 		ATTRIBUTE_PLAYER_CONTROL,
 		ATTRIBUTE_ENEMY,		//all enemies
-		ATTRIBUTE_FRIENDLY		//all friendlies
+		ATTRIBUTE_FRIENDLY,		//all friendlies
 	};
 
 	//XXX move all members to comps/attrs
@@ -442,6 +488,12 @@ class EntityManager {
 		else if(type==Component::TYPE_ENGINE) {
 			c=new CompEngine(e);
 		}
+		else if(type==Component::TYPE_TELEPORTATION) {
+			c=new CompTeleportation(e);
+		}
+		else if(type==Component::TYPE_SHOW_DAMAGE) {
+			c=new CompShowDamage(e);
+		}
 		else {
 			printf("WARN: comp type %d not handled\n",type);
 		}
@@ -456,10 +508,15 @@ class EntityManager {
 	std::vector<std::vector<Component*> > component_map;
 	std::vector<std::vector<Entity*> > attribute_map;
 
+	//component type -> event type -> set of components
+	std::vector<std::vector<std::unordered_set<Component*> > > component_events;
+
 	SimpleList<Component*> components_to_remove;
 	SimpleList<Component*> components_to_delete;
 	SimpleList<Entity*> entities_to_remove;
 	SimpleList<Entity*> entities_to_add;
+	SimpleList<std::pair<Component*,Component::Event> > events_to_add;
+	SimpleList<std::pair<Component*,Component::Event> > events_to_remove;
 
 
 public:
@@ -487,6 +544,19 @@ public:
 			Utils::vector_remove(ref->entity->refs,ref);
 		}
 		delete(ref);
+	}
+
+	//events
+	void event_add(Component* c,Component::Event e) {
+		events_to_add.push_back(std::pair<Component*,Component::Event>(c,e));
+	}
+	void event_remove(Component* c,Component::Event e) {
+		events_to_remove.push_back(std::pair<Component*,Component::Event>(c,e));
+	}
+	const std::unordered_set<Component*>& event_list_components(Component::Type component_type,Component::Event event) {
+		Utils::vector_fit_size(component_events,component_type+1);
+		Utils::vector_fit_size(component_events[component_type],event+1);
+		return component_events[component_type][event];
 	}
 
 
@@ -530,88 +600,54 @@ public:
 	void component_remove(Component* component) {
 		components_to_remove.push_back(component);
 	}
+	//returns first found component of type
+	//TODO: slow
+	Component* component_get(Entity* e,Component::Type type) {
+		for(Component* c : e->components) {
+			if(c->type==type) {
+				return c;
+			}
+		}
+		return NULL;
+	}
 
 	const std::vector<Component*>& component_list(Component::Type type) {
 		Utils::vector_fit_size(component_map,type+1);
 		return component_map[type];
 	}
 
-
-	/*
-	static bool component_is_indexed(Component::Type type) {
-		return (type<COMPONENT_INDEX_SIZE);
-	}
-	bool component_has(Entity* entity,Component::Type type) {
-		if(component_is_indexed(type)) {
-			return (entity->components_indexed[type]!=NULL);
-		}
-		for(int i=0;i<entity->components_unindexed.size();i++) {
-			if(entity->components_unindexed[i] && entity->components_unindexed[i]->type==type) {
-				return false;
-			}
-		}
-		return true;
-	}
-	bool component_add(Entity* entity,Component::Type type) {
-		if(component_has(entity,type)) {
-			return false;
-		}
-		Component* comp=component_create(type,entity);
-
-		if(component_is_indexed(type)) {
-			entity->components_indexed[type]=comp;
-		}
-		bool inserted=false;
-		for(int i=0;i<entity->components_unindexed.size();i++) {
-			if(!entity->components_unindexed[i]) {
-				entity->components_unindexed[i]=comp;
-				inserted=true;
-				break;
-			}
-		}
-		if(!inserted) {
-			entity->components_unindexed.push_back(comp);
-		}
-
-		Utils::vector_fit_size(component_map,type+1);
-
-		return true;
-	}
-	bool component_remove(Entity* entity,Component::Type type) {
-
-		if(component_map.size()<type+1) {
-			return false;
-		}
-		//for(int i=0;i<)
-		//Utils::vector_remove(component_map[type],);
-
-		if(component_is_indexed(type)) {
-			if(!entity->components_indexed[type]) {
-				return false;
-			}
-			//component_remove_from_map(entity,);
-			delete(entity->components_indexed[type]);
-			entity->components_indexed[type]=NULL;
-			return true;
-		}
-		for(int i=0;i<entity->components_unindexed.size();i++) {
-			if(entity->components_unindexed[i]->type==type) {
-				delete(entity->components_unindexed[i]);
-				entity->components_unindexed[i]=NULL;
-				return true;
-			}
-		}
-		return false;
-	}
-	*/
-
 	//apply add/remove operations
 	void update() {
 
+		//events add/remove
+		for(int i=0;i<events_to_add.size();i++) {
+			Component* c=events_to_add[i].first;
+			Component::Event e=events_to_add[i].second;
+			if(c->events.insert(e).second) {
+				Utils::vector_fit_size(component_events,c->type+1);
+				Utils::vector_fit_size(component_events[c->type],e+1);
+				component_events[c->type][e].insert(c);
+			}
+		}
+		events_to_add.clear();
+
+		for(int i=0;i<events_to_remove.size();i++) {
+			Component* c=events_to_remove[i].first;
+			Component::Event e=events_to_remove[i].second;
+			if(c->events.erase(e)!=0) {
+				component_events[c->type][e].erase(c);
+			}
+		}
+		events_to_remove.clear();
+
+
+		//entities add/remove
 		if(entities_to_add.size()>0) {
-			//for(Entity* e : entities_to_add) {
 			for(int i=0;i<entities_to_add.size();i++) {
 				entities.push_back(entities_to_add[i]);
+				for(Component* c : entities_to_add[i]->components) {
+					c->insert();
+				}
 			}
 			entities_to_add.clear();
 		}
@@ -646,6 +682,8 @@ public:
 			}
 			entities_to_remove.clear();
 		}
+
+		//components add/remove
 		if(components_to_remove.size()>0) {
 
 			for(int i=0;i<components_to_remove.size();i++) {
@@ -663,6 +701,10 @@ public:
 				if(index==-1) {
 					//printf("comp not in map\n");
 					continue;
+				}
+
+				for(Component::Event event : c->events) {
+					component_events[c->type][event].erase(c);
 				}
 
 				if(c->entity) {
@@ -686,6 +728,21 @@ public:
 	}
 };
 
+class Controls {
+public:
+	bool move_left;
+	bool move_right;
+	bool move_up;
+	bool move_down;
+
+	Controls() {
+		move_left=false;
+		move_right=false;
+		move_up=false;
+		move_down=false;
+	}
+};
+
 class Game : public Menu {
 	SpaceBackground background;
 	Node node_game;
@@ -705,7 +762,13 @@ class Game : public Menu {
 	Graphic graphic_engine;
 	std::vector<Graphic> graphic_missile;
 
+	NodeShader shader_damage;
+	bool use_shader_damage;
+
 	float time_scale;
+	Controls controls;
+
+	float game_time;
 
 public:
 
@@ -880,6 +943,11 @@ public:
 					(std::string)"enemies/"+enemy_shooter_side_texture_names[i])));
 		}
 
+		shader_damage.shader=Loader::get_shader("shader/boom.frag");
+		shader_damage.set_param("freq",35);
+		shader_damage.set_param("amount",0.01);
+		use_shader_damage=false;
+
 		/*
 		for(int i=0;i<4;i++) {
 			cam_border[i].type=Node::TYPE_SOLID;
@@ -901,6 +969,8 @@ public:
 	void start_level() {
 		//reset
 		time_scale=1.0;
+		game_time=0.0;
+		use_shader_damage=false;
 
 		//cleanup
 		for(Entity* e : entities.entities) {
@@ -923,6 +993,8 @@ public:
 			enemy->pos=sf::Vector2f(Utils::rand_vec(-4000,4000));
 			entity_add(enemy);
 		}
+
+		controls=Controls();
 	}
 
 	//entities
@@ -939,6 +1011,28 @@ public:
 	void entity_add_timeout(Entity* entity,CompTimeout::Action action,float timeout) {
 		CompTimeout* t=(CompTimeout*)entities.component_add(entity,Component::TYPE_TIMEOUT);
 		t->set(action,timeout);
+	}
+	//entity local to entity local
+	sf::Vector2f entity_rotate_vector(const Entity* e,const sf::Vector2f p) {
+		float theta = Utils::deg_to_rad(e->angle+90);	//XXX get rid of 90deg offset
+		float cs=cos(theta);
+		float sn=sin(theta);
+
+		return sf::Vector2f(
+				p.x*cs-p.y*sn,
+				p.x*sn+p.y*cs);
+	}
+	void entity_teleport(Entity* e,const sf::Vector2f& pos) {
+		CompTeleportation* tele=(CompTeleportation*)entities.component_add(e,Component::TYPE_TELEPORTATION);
+		tele->origin=e->pos;
+		tele->destination=pos;
+		tele->anim=0.0;
+		tele->anim_duration=0.2;
+
+		tele->origin_node=e->node_main;
+
+		node_ships.add_child(&tele->origin_node);
+		e->pos=pos;
 	}
 
 	Entity* create_player() {
@@ -993,12 +1087,22 @@ public:
 
 		player->player_side=true;
 
+		CompShowDamage* c_show_damage=(CompShowDamage*)entities.component_add(player,Component::TYPE_SHOW_DAMAGE);
+		c_show_damage->damage_type=CompShowDamage::DAMAGE_TYPE_SCREEN_EFFECT;
+		entities.event_add(c_show_damage,Component::EVENT_DAMAGED);
+
 		return player;
 	}
 	Entity* create_bullet(const Texture& tex,bool player_side) {
+		float scale=1.0;
+
+		if(!player_side) {
+			scale=2.0;
+		}
+
 		Entity* bullet=entities.entity_create();
-		bullet->display.add_texture_center(tex);
-		bullet->shape.add_quad_center(tex.get_size());
+		bullet->display.add_texture_center(tex,scale);
+		bullet->shape.add_quad_center(tex.get_size()*scale);
 
 		if(player_side) {
 			bullet->shape.collision_group=CompShape::COLLISION_GROUP_PLAYER_BULLET;
@@ -1017,9 +1121,11 @@ public:
 		return bullet;
 	}
 	Entity* create_missile(const Graphic& g,Entity* target,bool player_side) {
+		float scale=2.0;
+
 		Entity* missile=entities.entity_create();
-		missile->display.add_graphic_center(g);
-		missile->shape.add_quad_center(g.get_texture().get_size());
+		missile->display.add_graphic_center(g,scale);
+		missile->shape.add_quad_center(g.get_texture().get_size()*scale);
 
 		if(player_side) {
 			missile->shape.collision_group=CompShape::COLLISION_GROUP_PLAYER_BULLET;
@@ -1044,15 +1150,18 @@ public:
 		}
 
 		CompEngine* eng=(CompEngine*)entities.component_add(missile,Component::TYPE_ENGINE);
-		eng->set(graphic_engine,sf::Vector2f(0,g.get_texture().get_size().y*0.5));
+		eng->set(graphic_engine,sf::Vector2f(0,g.get_texture().get_size().y*scale*0.5));
 
 		return missile;
 	}
 
 	Entity* create_enemy(const Graphic& g) {
+		float scale=2.0;
+
 		Entity* k=entities.entity_create();
-		k->display.add_graphic_center(g);
-		k->shape.add_quad_center(g.get_texture().get_size());
+		k->display.add_graphic_center(g,scale);
+
+		k->shape.add_quad_center(g.get_texture().get_size()*scale);
 		entities.attribute_add(k,Entity::ATTRIBUTE_REMOVE_ON_DEATH);
 		entities.attribute_add(k,Entity::ATTRIBUTE_ENEMY);
 
@@ -1061,7 +1170,12 @@ public:
 				CompShape::COLLISION_GROUP_PLAYER|
 				CompShape::COLLISION_GROUP_PLAYER_BULLET);
 
-		k->health.health=10;
+
+		CompShowDamage* c_show_damage=(CompShowDamage*)entities.component_add(k,Component::TYPE_SHOW_DAMAGE);
+		c_show_damage->damage_type=CompShowDamage::DAMAGE_TYPE_BLINK;
+		entities.event_add(c_show_damage,Component::EVENT_DAMAGED);
+
+		k->health.health=100;
 		return k;
 	}
 	Entity* create_enemy_suicide(const Graphic& g) {
@@ -1123,6 +1237,17 @@ public:
 	//"events"
 	void entity_damage(Entity* e,float dmg) {
 		e->health.health-=dmg;
+
+		CompShowDamage* c_show_damage=(CompShowDamage*)entities.component_get(e,Component::TYPE_SHOW_DAMAGE);
+		if(c_show_damage) {
+			c_show_damage->time=0.0;
+			entities.event_add(c_show_damage,Component::EVENT_FRAME);
+
+			if(c_show_damage->damage_type==CompShowDamage::DAMAGE_TYPE_SCREEN_EFFECT) {
+				use_shader_damage=true;
+			}
+		}
+
 		if(e->health.health<=0 && e->health.alive) {
 			e->health.alive=false;
 
@@ -1177,64 +1302,75 @@ public:
 
 		//input
 		for(Entity* e : entities.attribute_list_entities(Entity::ATTRIBUTE_PLAYER_CONTROL)) {
+			/*
 			e->vel=(pointer_pos-size*0.5f)*3.0f;
 			e->vel=Utils::vec_cap_length(e->vel,0,200);
+			*/
 			e->fire_gun[0]=pressed;
 			e->fire_gun[1]=pressed_right;
+
+			float max_vel=200;
+			sf::Vector2f vel;
+			if(controls.move_up) vel.y-=1.0;
+			if(controls.move_down) vel.y+=1.0;
+			if(controls.move_left) vel.x-=1.0;
+			if(controls.move_right) vel.x+=1.0;
+			Utils::vec_normalize(vel);
+			vel*=max_vel;
+
+			e->vel=vel;
+
+			float angle=Utils::rad_to_deg(Utils::vec_angle(size*0.5f-pointer_pos));
+			e->angle=angle;
+
 		}
 
-		//sim
+		//XXX sim
 		for(Entity* e : entities.entities) {
 			//display
 			for(GraphicNode::Ptr& d : e->display.nodes) {
 				d->update(dt);
 			}
-			/*
-			for(int d=0;d<e->display.nodes.size();d++) {
-				e->display.nodes[d]->update(dt);
-			}
-			*/
 
 			//shape
-			for(const Quad& q : e->shape.quads) {
-				Quad q2=q;
-				q2.translate(e->pos);
+			if(e->shape.enabled) {
+				for(const Quad& q : e->shape.quads) {
+					Quad q2=q;
+					q2.translate(e->pos);
 
-				if(e->shape.collision_mask&CompShape::COLLISION_GROUP_TERRAIN) {
-					sf::Vector2f q_size=q2.p2-q2.p1;
+					if(e->shape.collision_mask&CompShape::COLLISION_GROUP_TERRAIN) {
+						sf::Vector2f q_size=q2.p2-q2.p1;
 
-					sf::FloatRect r(q2.p1,q_size);
-					if(terrain.check_collision(r)) {
-						terrain.damage_area(r);
-						entity_damage(e,10);
-					}
-				}
-
-				//brute-force collisions
-				for(Entity* ce : entities.entities) {
-					if(ce==e) {
-						continue;
-					}
-
-					if( (e->shape.collision_group&ce->shape.collision_mask)==0 ||
-							(ce->shape.collision_group&e->shape.collision_mask)==0) {
-						continue;
-					}
-
-					for(const Quad& cq : ce->shape.quads) {
-//					for(int cs=0;cs<ce->shape.quads.size();cs++) {
-	//					const Quad& cq=ce->shape.quads[cs];
-
-						Quad cq2=cq;
-						cq2.translate(ce->pos);
-
-						if(q2.intersects(cq2)) {
+						sf::FloatRect r(q2.p1,q_size);
+						if(terrain.check_collision(r)) {
+							terrain.damage_area(r);
 							entity_damage(e,10);
-							entity_damage(ce,10);
+						}
+					}
+
+					//brute-force collisions
+					for(Entity* ce : entities.entities) {
+						if(ce==e || !ce->shape.enabled) {
+							continue;
+						}
+
+						if( (e->shape.collision_group&ce->shape.collision_mask)==0 ||
+								(ce->shape.collision_group&e->shape.collision_mask)==0) {
+							continue;
+						}
+
+						for(const Quad& cq : ce->shape.quads) {
+
+							Quad cq2=cq;
+							cq2.translate(ce->pos);
+
+							if(q2.intersects(cq2)) {
+								entity_damage(e,10);
+								entity_damage(ce,10);
+							}
 						}
 					}
 				}
-
 			}
 		}
 
@@ -1289,7 +1425,7 @@ public:
 			}
 			else if(comp->ai_type==CompAI::AI_MISSILE) {
 				float angle_vel=M_PI*1.0;
-				float vel=200;
+				float vel=250;
 
 				float angle=Utils::deg_to_rad(comp->entity->angle);
 				if(comp->target && comp->target->entity) {
@@ -1311,16 +1447,72 @@ public:
 			g->cur_fire_timeout=g->fire_timeout;
 
 			for(int i=0;i<g->bullet_count;i++) {
-				float angle=0;
+				float angle=g->angle;
 				if(g->bullet_count>1) {
 					angle=g->angle-g->angle_spread*0.5+(float)i/((float)g->bullet_count-1)*g->angle_spread;
 				}
 
 				Entity* bullet=create_bullet(g->texture,g->entity->player_side);
-				bullet->pos=g->entity->pos+g->pos;
+				bullet->pos=g->entity->pos+entity_rotate_vector(g->entity,g->pos);
 				bullet->angle=g->entity->angle+angle;
 				bullet->vel=Utils::vec_for_angle_deg(bullet->angle,g->bullet_speed);
 				entity_add(bullet);
+			}
+		}
+		for(Component* ccomp : entities.component_list(Component::TYPE_TELEPORTATION)) {
+			CompTeleportation* tele=(CompTeleportation*)ccomp;
+
+			tele->anim+=dt;
+			if(tele->anim>=tele->anim_duration) {
+				node_ships.remove_child(&tele->origin_node);
+				entities.component_remove(tele);
+
+				tele->entity->node_main.visible=true;	//scale=sf::Vector2f(1,1);
+				tele->entity->shape.enabled=true;
+				continue;
+			}
+
+			float a=Easing::inOutCubic(tele->anim/tele->anim_duration);
+			//float a1=1.0f-a;
+			float s=1.0f-sin(a*M_PI);
+
+			tele->origin_node.pos=tele->origin;
+
+			sf::Vector2f c_pos=Utils::vec_lerp(tele->origin,tele->destination,a);
+
+			tele->origin_node.pos=c_pos;
+			tele->origin_node.rotation=Utils::rad_to_deg(Utils::vec_angle(tele->destination-tele->origin))-90;
+			tele->origin_node.scale=sf::Vector2f(s,2.0f-s);
+
+			tele->entity->node_main.visible=false;//scale=sf::Vector2f(a,2.0f-a);
+			tele->entity->pos=c_pos;
+
+			tele->entity->shape.enabled=false;
+		}
+		for(Component* ccomp : entities.event_list_components(Component::TYPE_SHOW_DAMAGE,Component::EVENT_FRAME)) {
+			CompShowDamage* comp=(CompShowDamage*)ccomp;
+
+			comp->time+=dt;
+			if(comp->time>=comp->time_max) {
+				entities.event_remove(comp,Component::EVENT_FRAME);
+
+				if(comp->damage_type==CompShowDamage::DAMAGE_TYPE_BLINK) {
+					comp->entity->node_main.color_add.set(0,0,0,0);
+				}
+				else if(comp->damage_type==CompShowDamage::DAMAGE_TYPE_SCREEN_EFFECT) {
+					use_shader_damage=false;
+				}
+
+				continue;
+			}
+
+			float a=1.0f-comp->time/comp->time_max;
+
+			if(comp->damage_type==CompShowDamage::DAMAGE_TYPE_BLINK) {
+				comp->entity->node_main.color_add.set(a,a,a,0);
+			}
+			else if(comp->damage_type==CompShowDamage::DAMAGE_TYPE_SCREEN_EFFECT) {
+				shader_damage.set_param("amount",a*0.01);
 			}
 		}
 
@@ -1356,8 +1548,51 @@ public:
 		background.update(camera_rect);
 		terrain.update_visual(camera_rect);
 
+		//post process
+		node.post_process_shaders.clear();
+		if(use_shader_damage) {
+			node.post_process_shaders.push_back(shader_damage);
+			shader_damage.set_param("time",game_time*0.4);
+		}
+
+
+		game_time+=dt;
 	}
 	bool event_input(const MenuEvent& event) {
+
+		if(event.event.type==sf::Event::KeyPressed || event.event.type==sf::Event::KeyReleased) {
+			sf::Keyboard::Key c=event.event.key.code;
+			bool pressed=(event.event.type==sf::Event::KeyPressed);
+
+			/*
+			if(c==sf::Keyboard::W) {
+				player->fire_gun[2]=pressed;
+			}
+			*/
+
+			//movement
+			if(c==sf::Keyboard::A) {
+				controls.move_left=pressed;
+				if(pressed) controls.move_right=false;
+			}
+			else if(c==sf::Keyboard::D) {
+				controls.move_right=pressed;
+				if(pressed) controls.move_left=false;
+			}
+			else if(c==sf::Keyboard::W) {
+				controls.move_up=pressed;
+				if(pressed) controls.move_down=false;
+			}
+			else if(c==sf::Keyboard::S) {
+				controls.move_down=pressed;
+				if(pressed) controls.move_up=false;
+			}
+			//other
+			else if(c==sf::Keyboard::Space) {
+				time_scale= (pressed ? 0.3 : 1.0);
+			}
+		}
+
 
 		if(event.event.type==sf::Event::KeyPressed) {
 			sf::Keyboard::Key c=event.event.key.code;
@@ -1369,14 +1604,8 @@ public:
 			else if(c==sf::Keyboard::Q) {	//missiles
 				launch_missiles(3,player->pos,player->player_side);
 			}
-			else if(c==sf::Keyboard::W) {	//laser
-				player->fire_gun[2]=true;
-			}
 			else if(c==sf::Keyboard::E) {	//teleport
-				player->pos=screen_to_game_pos(pointer_pos);
-			}
-			else if(c==sf::Keyboard::Space) {
-				time_scale=0.3;
+				entity_teleport(player,screen_to_game_pos(pointer_pos));
 			}
 
 			else if(c==sf::Keyboard::Z) {	//zoom mode
@@ -1389,16 +1618,6 @@ public:
 					node_game.scale=sf::Vector2f(2,2);
 				}
 				background.scale=node_game.scale;
-			}
-		}
-		else if(event.event.type==sf::Event::KeyReleased) {
-			sf::Keyboard::Key c=event.event.key.code;
-
-			if(c==sf::Keyboard::W) {	//laser
-				player->fire_gun[2]=false;
-			}
-			else if(c==sf::Keyboard::Space) {
-				time_scale=1.0;
 			}
 		}
 

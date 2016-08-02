@@ -9,7 +9,6 @@ void Node::add_child(Node* node,int pos) {
 }
 bool Node::remove_child(Node* node) {
 	return Utils::vector_remove(children,node);
-	return false;
 }
 void Node::clear_children() {
 	children.clear();

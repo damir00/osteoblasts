@@ -44,10 +44,12 @@ public:
 		}
 		return v;
 	}
+	static sf::Vector2f vec_lerp(const sf::Vector2f& v1,const sf::Vector2f& v2,float x) {
+		return sf::Vector2f(v1.x+(v2.x-v1.x)*x,v1.y+(v2.y-v1.y)*x);
+	}
 
 	static float rad_to_deg(float rad) { return rad*(180.0f/M_PI); }
 	static float deg_to_rad(float deg) { return deg*(M_PI/180.0f); }
-
 
 	static float angle_move_towards(float start,float end,float limit) {
 		float delta=end-start;

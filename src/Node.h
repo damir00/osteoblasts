@@ -5,6 +5,7 @@
 
 #include <vector>
 #include <string>
+#include <unordered_map>
 
 #include "Texture.h"
 
@@ -42,6 +43,12 @@ public:
 		b*=c.b;
 		a*=c.a;
 	}
+	void operator+=(const Color& c) {
+		r+=c.r;
+		g+=c.g;
+		b+=c.b;
+		a+=c.a;
+	}
 	Color lerp(Color c,float x) {
 		return Color(
 				Utils::lerp(r,c.r,x),
@@ -51,6 +58,38 @@ public:
 	}
 	sf::Color sfColor() const {
 		return sf::Color(r*255.0,g*255.0,b*255.0,a*255.0);
+	}
+
+	static Color rand() {
+		return Color(
+				Utils::rand_range(0,1),
+				Utils::rand_range(0,1),
+				Utils::rand_range(0,1),
+				1.0);
+	}
+};
+
+class NodeShader {
+	std::unordered_map<std::string,float> param_float;
+public:
+	sf::Shader* shader;
+
+	NodeShader() {
+		shader=NULL;
+	}
+	NodeShader(sf::Shader* _shader) {
+		shader=_shader;
+	}
+	void set_param(const std::string& name,float p) {
+		param_float[name]=p;
+	}
+	void applyParams() {
+		if(!shader) {
+			return;
+		}
+		for(std::unordered_map<std::string,float>::iterator it=param_float.begin();it!=param_float.end();it++) {
+			shader->setParameter(it->first,it->second);
+		}
 	}
 };
 
@@ -65,10 +104,13 @@ public:
 	std::vector<Node*> children;
 
 	Color color;
+	Color color_add;
+	NodeShader shader;
+	std::vector<NodeShader> post_process_shaders;
 
 	enum Type {
 		TYPE_NO_RENDER,
-		TYPE_TEXTURE,		//textured sprite,
+		TYPE_TEXTURE,		//textured sprite
 		TYPE_SOLID,			//solid color, scale=size
 		TYPE_TEXT
 	};
@@ -83,6 +125,7 @@ public:
 		type=TYPE_TEXTURE;
 		scale=sf::Vector2f(1,1);
 		rotation=0;
+		color_add.set(0,0,0,0);
 	}
 	virtual ~Node() {}
 

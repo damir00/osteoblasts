@@ -8,6 +8,7 @@
 #include "Node.h"
 #include "Menu.h"
 #include "Utils.h"
+#include "Loader.h"
 
 namespace {
 
@@ -15,9 +16,22 @@ class Renderer {
 
 	class RenderState {
 	public:
-		sf::RenderTarget* target;
+		sf::RenderTarget* target_current;
+		sf::RenderTarget* target_main;
+		sf::RenderTexture* target_texture[2];
 		Color color;
+		Color color_add;
+		NodeShader *shader;
 		sf::RenderStates sfml_state;
+
+		RenderState() {
+			target_current=nullptr;
+			target_main=nullptr;
+			target_texture[0]=nullptr;
+			target_texture[1]=nullptr;
+			shader=nullptr;
+			color_add.set(0,0,0,0);
+		}
 	};
 
 	sf::Sprite tmp_sprite;
@@ -31,9 +45,42 @@ class Renderer {
 		RenderState new_state=state;
 
 		new_state.sfml_state.transform.translate(node->pos-node->origin);
-		new_state.sfml_state.transform.scale(node->scale);
 		new_state.sfml_state.transform.rotate(node->rotation,node->origin);
+		new_state.sfml_state.transform.scale(node->scale);
 		new_state.color*=node->color;
+		new_state.color_add+=node->color_add;
+		if(node->shader.shader) {
+			new_state.shader=&node->shader;
+			new_state.shader->applyParams();
+		}
+		if(new_state.shader) {
+			new_state.sfml_state.shader=new_state.shader->shader;
+		}
+		else {
+			sf::Shader* s;
+
+			if(node->type==Node::TYPE_SOLID) {
+				s=shader_base;
+			}
+			else {
+				s=shader_base_texure;
+			}
+
+			new_state.sfml_state.shader=s;
+			s->setParameter("color",new_state.color.sfColor());
+			s->setParameter("color_add",new_state.color_add.sfColor());
+		}
+
+
+		sf::RenderTarget* target;
+		if(node->post_process_shaders.empty()) {
+			target=new_state.target_current;
+		}
+		else {
+			target=new_state.target_texture[0];
+		}
+		new_state.target_current=target;
+
 
 		switch(node->type) {
 		case Node::TYPE_NO_RENDER:
@@ -43,35 +90,70 @@ class Renderer {
 				tmp_sprite.setTexture(*node->texture.tex,false);
 				tmp_sprite.setTextureRect(node->texture.rect);
 				tmp_sprite.setColor(new_state.color.sfColor());
-				new_state.target->draw(tmp_sprite,new_state.sfml_state);
+				target->draw(tmp_sprite,new_state.sfml_state);
 			}
 			break;
 		case Node::TYPE_SOLID:
 			tmp_rectangle.setFillColor(new_state.color.sfColor());
-			new_state.target->draw(tmp_rectangle,new_state.sfml_state);
+			target->draw(tmp_rectangle,new_state.sfml_state);
 			break;
 		case Node::TYPE_TEXT:
 			node->text.setColor(new_state.color.sfColor());
-			new_state.target->draw(node->text,new_state.sfml_state);
+			target->draw(node->text,new_state.sfml_state);
 			break;
 		}
 		for(Node* child : node->children) {
 			render_node(child,new_state);
 		}
+
+
+		if(!node->post_process_shaders.empty()) {
+			new_state.target_texture[0]->display();
+
+			int target_i=0;
+			for(std::size_t i=0;i<node->post_process_shaders.size();i++) {
+				NodeShader& shader=node->post_process_shaders[i];
+
+				const sf::Texture& texture=new_state.target_texture[target_i]->getTexture();
+				sf::Sprite sprite(texture);
+
+				shader.applyParams();
+
+				if(i==node->post_process_shaders.size()-1) {
+					new_state.target_main->draw(sprite,shader.shader);
+				}
+				else {
+					target_i=(target_i+1)%2;
+					new_state.target_texture[target_i]->draw(sprite,shader.shader);
+					new_state.target_texture[target_i]->display();
+				}
+			}
+		}
+
+
 	}
 
 public:
 
+	sf::Shader* shader_base;
+	sf::Shader* shader_base_texure;
+
 	Renderer() {
 		tmp_rectangle.setSize(sf::Vector2f(1,1));
+
+		shader_base=Loader::get_shader("shader/base.frag");
+		shader_base_texure=Loader::get_shader("shader/base_texture.frag");
 	}
 
 	void resize(sf::Vector2f _size) {
 
 	}
-	void render(sf::RenderTarget* _target,Node* node) {
+	void render(sf::RenderTarget* _target,sf::RenderTexture* target_texture1,sf::RenderTexture* target_texture2,Node* node) {
 		RenderState state;
-		state.target=_target;
+		state.target_main=_target;
+		state.target_texture[0]=target_texture1;
+		state.target_texture[1]=target_texture2;
+		state.target_current=_target;
 		render_node(node,state);
 	}
 };
@@ -114,8 +196,15 @@ public:
 	bool rtt_enabled;
 	bool do_run;
 
+	float fixed_frame_step;
+	float fixed_frame_accumulator;
+
+	sf::RenderTexture render_textures[2];
+
 	Impl() {
 		do_run=false;
+		fixed_frame_step=1000.0/60.0;
+		fixed_frame_accumulator=0;
 	}
 	~Impl() {
 	}
@@ -135,7 +224,8 @@ public:
 		has_focus=true;
 
 		shader_enabled=sf::Shader::isAvailable();
-		rtt_enabled=false;
+
+		resize_render_textures(w,h);
 
 		sf::ContextSettings settings = window.getSettings();
 		printf("OpenGL version: %d.%d\n",settings.majorVersion,settings.minorVersion);
@@ -143,12 +233,18 @@ public:
 		printf("shader supported: %d\n",shader_enabled);
 	}
 
+	void resize_render_textures(int w,int h) {
+		rtt_enabled=true;
+		rtt_enabled&=render_textures[0].create(w,h,false);
+		rtt_enabled&=render_textures[1].create(w,h,false);
+	}
 	void window_resized(sf::Vector2f size) {
 		sf::View view=sf::View(sf::FloatRect(0.f, 0.f,size.x,size.y));
 		window.setView(view);
 
 		menu_root.resize(size);
 		renderer.resize(size);
+		resize_render_textures(size.x,size.y);
 	}
 	void forward_event(const sf::Event& event) {
 		menu_root.send_event(MenuEvent(event).adapted(&menu_root));
@@ -167,17 +263,11 @@ public:
 		sf::Event event;
 		while(window.pollEvent(event)) {
 
-			//menu_root->event(event);
-
-			//tweakers
-	//		tweaker_event(event);
-
 			switch(event.type) {
 				case sf::Event::Closed:
 					window.close();
 					break;
 				case sf::Event::Resized:
-					//event.size.width,event.size.height
 					window_resized(Utils::vec_to_f(window.getSize()));
 					break;
 				case sf::Event::LostFocus:
@@ -187,21 +277,6 @@ public:
 					has_focus=true;
 					break;
 				case sf::Event::KeyPressed:
-					/*
-					switch(event.key.code) {
-						case sf::Keyboard::S:
-							game->spawner->update(10000);
-							break;
-
-						case sf::Keyboard::Num1: game->player->weapon_i=0; break;
-						case sf::Keyboard::Num2: game->player->weapon_i=1; break;
-						case sf::Keyboard::Num3: game->player->weapon_i=2; break;
-						case sf::Keyboard::Num4: game->player->weapon_i=3; break;
-						case sf::Keyboard::Num5: game->player->weapon_i=4; break;
-						case sf::Keyboard::Num6: game->player->weapon_i=5; break;
-					}
-					break;
-					*/
 				case sf::Event::KeyReleased:
 				case sf::Event::MouseMoved:
 				case sf::Event::MouseButtonPressed:
@@ -306,23 +381,15 @@ public:
 		clock.restart();
 		long delta=delta_t.asMilliseconds();
 
-		/*
-		measure_fps_count++;
-		measure_fps_time+=delta;
-		if(measure_fps_time>1000) {
-			printf("%ld frames in %ld ms: %ld FPS\n",
-				measure_fps_count,
-				measure_fps_time,
-				measure_fps_count*1000/measure_fps_time);
-			measure_fps_count=0;
-			measure_fps_time=0;
-		}
-		 */
+		fixed_frame_accumulator+=delta;
 
-		menu_root.frame(delta);
+		while(fixed_frame_accumulator>=fixed_frame_step) {
+			menu_root.frame(fixed_frame_step);
+			fixed_frame_accumulator-=fixed_frame_step;
+		}
 
 		window.clear(sf::Color::Black);
-		renderer.render(&window,&menu_root.node);
+		renderer.render(&window,&render_textures[0],&render_textures[1],&menu_root.node);
 		window.display();
 	}
 

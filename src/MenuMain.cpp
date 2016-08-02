@@ -8,6 +8,7 @@
 #include "Loader.h"
 #include "SpaceBackground.h"
 #include "Game.h"
+#include "Easing.h"
 #include "MenuMain.h"
 
 class MenuMainSettings : public Menu {
@@ -164,7 +165,7 @@ class MenuMainHeader : public Menu {
 
 	Node* node_red_lines;
 	Node* node_boom;
-	sf::Shader shader_boom;
+	sf::Shader* shader_boom;
 
 	noise::module::Perlin perlin;
 	//std::vector<MenuMainHeaderShadeRectPtr> shade_rects;
@@ -227,14 +228,12 @@ public:
 		add_shade_rect(623+162,145+0,23,23);
 		add_shade_rect(623+189,145+0,25,23);
 
-		/*
-		shader_boom.loadFromFile("assets/shader/boom.frag",sf::Shader::Fragment);
-		shader_boom.setParameter("texture", sf::Shader::CurrentTexture);
+		shader_boom=Loader::get_shader("shader/boom.frag");
 
-		node_boom->shader.shader=&shader_boom;
+		node_boom->shader.shader=shader_boom;
 		node_boom->shader.set_param("freq",5);
 		node_boom->shader.set_param("amount",0.01);
-		*/
+
 
 		perlin.SetFrequency(1);
 		perlin.SetOctaveCount(3);
@@ -249,10 +248,10 @@ public:
 		time+=delta;
 
 		blinker.frame(delta);
-		/*
+
 		node_boom->shader.set_param("time",-time/700.0);
 		node_boom->shader.set_param("amount",boom_amount);
-		*/
+
 		boom_amount=Utils::num_move_towards(boom_amount,0.004,delta*0.00003);
 
 		float a=(cos(time/1000.0)+1.0)/2.0;
@@ -260,7 +259,8 @@ public:
 		Color red_color2(255.0/255.0,22.0/255.0,26.0/255.0,1.0);
 		node_red_lines->color=red_color1.lerp(red_color2,a);
 	}
-	void on_clicked(sf::Vector2f mouse_pos) {
+
+	void event_click(sf::Vector2f pos) override {
 		if(Utils::probability(0.75)) {
 			boom_amount=0.02;
 		}
@@ -368,8 +368,9 @@ public:
 		float anim;
 
 		void update_anim() {
-			menu_in->node.color.a=anim;
-			menu_out->node.color.a=1.0-anim;
+			float a=Easing::inOutCubic(anim);
+			menu_in->node.color.a=a;
+			menu_out->node.color.a=1.0f-a;
 		}
 	public:
 		float duration;

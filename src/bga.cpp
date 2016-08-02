@@ -13,7 +13,7 @@
 #include "SpaceBackground.h"
 #include "MenuMain.h"
 
-
+/*
 class TestMenu : public Menu {
 public:
 
@@ -92,6 +92,43 @@ public:
 	}
 
 };
+*/
+
+class TestMenu : public Menu {
+public:
+	Node t_node;
+
+	TestMenu() {
+		node.add_child(&t_node);
+
+		t_node.type=Node::TYPE_SOLID;
+		t_node.color.set(1,0.5,0,1);
+		t_node.pos=sf::Vector2f(10,10);
+		//t_node.scale=sf::Vector2f(100,200);
+
+		for(int i=0;i<100;i++) {
+			Node* n=new Node();
+			n->type=Node::TYPE_SOLID;
+			n->color=Color::rand();
+			n->pos=Utils::rand_vec(0,1500);
+			n->scale=Utils::rand_vec(10,50);
+			t_node.add_child(n);
+		}
+
+		NodeShader shader1;
+		shader1.shader=Loader::get_shader("shader/boom.frag");
+		shader1.set_param("freq",5);
+		shader1.set_param("amount",0.01);
+		t_node.post_process_shaders.push_back(shader1);
+
+		NodeShader shader2;
+		shader2.shader=Loader::get_shader("shader/test1.frag");
+		//shader2.set_param("freq",5);
+		//shader2.set_param("amount",0.01);
+		t_node.post_process_shaders.push_back(shader2);
+}
+
+};
 
 #ifdef WIN32
 #include <Windows.h>
@@ -106,13 +143,18 @@ int main(int argc,char** argv) {
 	printf("Welcome to BGA!\n");
 
 	Loader::init();
-
-	//TestMenu test_menu;
 	Framework f;
+
+
+	/*
+	TestMenu test_menu;
+	f.get_root_menu()->add_child(&test_menu);
+	*/
+
+
 	MenuMain main_menu;
 	main_menu.set_quit_action(f.MESSAGE_QUIT);
 	f.get_root_menu()->add_child(&main_menu);
-
 	if(argc>1 && (std::string)argv[1]=="-s") {
 		main_menu.go_game();
 	}

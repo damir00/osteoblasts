@@ -47,6 +47,19 @@ sf::Font* load_font(const std::string& path) {
 void unload_font(sf::Font* font) {
 	delete(font);
 }
+sf::Shader* load_shader(const std::string& path) {
+	sf::Shader* s=new sf::Shader();
+	if(!s->loadFromFile(path,sf::Shader::Fragment)) {
+		printf("can't load font %s\n",path.c_str());
+		delete(s);
+		return NULL;
+	}
+	s->setParameter("texture", sf::Shader::CurrentTexture);
+	return s;
+}
+void unload_shader(sf::Shader* shader) {
+	delete(shader);
+}
 
 template <typename K,typename V>
 class Cache {
@@ -98,12 +111,13 @@ public:
 	Cache<std::string,Texture> cache_textures;
 	Cache<std::string,sf::Image*> cache_images;
 	Cache<std::string,sf::Font*> cache_fonts;
-
+	Cache<std::string,sf::Shader*> cache_shaders;
 
 	Impl() :
 		cache_textures(load_texture,unload_texture),
 		cache_images(load_image,unload_image),
-		cache_fonts(load_font,unload_font)
+		cache_fonts(load_font,unload_font),
+		cache_shaders(load_shader,unload_shader)
 	{
 	}
 	~Impl() {}
@@ -112,6 +126,7 @@ public:
 		cache_textures.clear();
 		cache_images.clear();
 		cache_fonts.clear();
+		cache_shaders.clear();
 	}
 
 	Texture get_texture(const std::string& path) {
@@ -132,6 +147,9 @@ public:
 	}
 	sf::Font* get_font(const std::string& path) {
 		return cache_fonts.get("assets/"+path);
+	}
+	sf::Shader* get_shader(const std::string& path) {
+		return cache_shaders.get("assets/"+path);
 	}
 
 };
@@ -154,6 +172,9 @@ sf::Image* Loader::get_image(const std::string &path) {
 }
 sf::Font* Loader::get_font(const std::string &path) {
 	return impl->get_font(path);
+}
+sf::Shader* Loader::get_shader(const std::string& path) {
+	return impl->get_shader(path);
 }
 void Loader::clear_all() {
 	impl->clear_all();
