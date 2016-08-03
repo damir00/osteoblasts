@@ -52,6 +52,8 @@ elseif("${PLATFORM}" STREQUAL "linux64")
 		libsfml-window.so
 
 		libGLEW.so
+
+		GL
 	)
 elseif("${PLATFORM}" STREQUAL "win32")
 	set(LOCAL_LIBS
@@ -59,6 +61,8 @@ elseif("${PLATFORM}" STREQUAL "win32")
 		${DEP_SFML_LIB_DIR}/sfml-graphics.lib
 		${DEP_SFML_LIB_DIR}/sfml-system.lib
 		${DEP_SFML_LIB_DIR}/sfml-window.lib
+
+		OpenGL32.lib
 
 		#${LIB_DIR}/libGLEW.so.1.10
 	)

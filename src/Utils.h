@@ -47,6 +47,10 @@ public:
 	static sf::Vector2f vec_lerp(const sf::Vector2f& v1,const sf::Vector2f& v2,float x) {
 		return sf::Vector2f(v1.x+(v2.x-v1.x)*x,v1.y+(v2.y-v1.y)*x);
 	}
+	static sf::Vector2f vec_reflect(const sf::Vector2f& v,const sf::Vector2f& normal) {
+		float dot=v.x*normal.x + v.y*normal.y;
+		return v-normal*2.0f*dot;
+	}
 
 	static float rad_to_deg(float rad) { return rad*(180.0f/M_PI); }
 	static float deg_to_rad(float deg) { return deg*(M_PI/180.0f); }

@@ -14,8 +14,8 @@
 
 class TerrainIslandPoint {
 public:
-	sf::Vector2f pos;
-	float size;
+	//sf::Vector2f pos;
+	//float size;
 	bool active;
 };
 
@@ -328,7 +328,6 @@ class TerrainIsland : public Node {
 
 	int w;
 	int h;
-	int cell_size;
 	TerrainIslandPoint *map;
 
 	int load_chunk_size;
@@ -351,6 +350,8 @@ class TerrainIsland : public Node {
 	void update_texture(const sf::IntRect& rect);
 
 public:
+	int cell_size;
+	uint32_t version_id;	//will get incremented every time the island is changed (by damage_area)
 	static TerrainLoader* loader;
 
 	//rect is in texture coordinate system
@@ -368,13 +369,16 @@ public:
 	void unload();
 	void damage_area(const sf::FloatRect& rect);
 	bool check_collision(const sf::FloatRect& rect);
+	bool check_collision(const sf::FloatRect& rect,sf::Vector2f& normal);
 	bool check_collision(const sf::Vector2f& pos);
+
+	void generate_icon_texture(sf::Texture* texture);	//texture needs to be proper size!
+	Texture generate_icon_texture();
 };
 
 
 class Terrain : public Node {
 	std::vector<TerrainIsland*> islands;
-	sf::Vector2f field_size;
 
 	Octree<TerrainIsland*> octree;
 	SimpleList<TerrainIsland*> loaded_islands;
@@ -382,12 +386,17 @@ class Terrain : public Node {
 	void add_island(TerrainIsland* island);
 
 public:
+	sf::Vector2f field_size;
+
 	Terrain();
 	void update_visual(const sf::FloatRect& rect);
 	void damage_area(const sf::FloatRect& rect);
 	bool check_collision(const sf::FloatRect& rect);
+	bool check_collision(const sf::FloatRect& rect,sf::Vector2f& normal);
 	bool check_collision(const sf::Vector2f& vect);
+	bool island_intersects(TerrainIsland* island,const Quad& quad);
 
+	SimpleList<TerrainIsland*>& list_islands(const Quad& _quad);
 };
 
 #endif

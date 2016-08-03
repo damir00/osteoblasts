@@ -34,10 +34,16 @@ import new game assets
 assaulter weapons
 shaders
 RTTs
+terrain & ship bounce
+damage flames
 
-terrain bounce
-hud
+minimap
+
 weapons cooloff
 laser
 
+remove CompDisplay from Entity
+
+hud
+get rid of 90deg graphics-physics offset
 

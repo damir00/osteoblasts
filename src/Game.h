@@ -6,6 +6,7 @@
 #include <memory>
 #include <vector>
 #include <unordered_set>
+#include <functional>
 
 #include <SFML/System.hpp>
 
@@ -19,6 +20,35 @@
 #include "Easing.h"
 
 //utils
+
+class SimpleTimer {
+public:
+	float current;
+	float max;
+	SimpleTimer() {
+		reset(1.0);
+	}
+	SimpleTimer(float _max) {
+		reset(_max);
+	}
+	void reset() {
+		current=0.0;
+	}
+	void reset(float _max) {
+		current=0.0;
+		max=_max;
+	}
+	void update(float dt) {
+		current+=dt;
+	}
+	bool is_done() {
+		return (current>=max);
+	}
+	float get_percentage() {
+		return current/max;
+	}
+
+};
 
 class Animation {
 public:
@@ -46,7 +76,7 @@ public:
 		delay=_delay;
 		frames.clear();
 
-		if(tex.tex==NULL) {
+		if(tex.tex==nullptr) {
 			return;
 		}
 
@@ -93,7 +123,7 @@ public:
 		animation=anim;
 	}
 	bool is_animated() const {
-		return (texture.tex==NULL && animation.texture.tex!=NULL);
+		return (texture.tex==NULL && animation.texture.tex!=nullptr);
 	}
 	Texture get_texture() const {
 		if(texture.tex) {
@@ -116,10 +146,12 @@ public:
 	Graphic graphic;
 	int anim_current_frame;
 	float anim_time;
+	bool repeat;
 
 	GraphicNode() {
 		anim_time=0;
 		anim_current_frame=0;
+		repeat=false;
 	}
 	GraphicNode(const Graphic& _graphic) {
 		set_graphic(_graphic);
@@ -139,7 +171,14 @@ public:
 			return;
 		}
 
-		anim_time=fmod(anim_time+dt,graphic.animation.duration);
+		anim_time+=dt;
+		if(repeat) {
+			anim_time=fmod(anim_time,graphic.animation.duration);
+		}
+		else {
+			anim_time=std::min(anim_time,graphic.animation.duration-0.001f);
+		}
+
 		int next_frame=(anim_time/graphic.animation.delay);
 		if(anim_current_frame!=next_frame) {
 			texture=graphic.get_texture(next_frame);
@@ -169,12 +208,16 @@ public:
 	enum Type {
 		TYPE_SHAPE=COMPONENT_INDEX_SIZE,
 		TYPE_DISPLAY,
+		TYPE_HEALTH,
 		TYPE_GUN,
 		TYPE_TIMEOUT,
 		TYPE_AI,
 		TYPE_ENGINE,
 		TYPE_TELEPORTATION,
-		TYPE_SHOW_DAMAGE
+		TYPE_SHOW_DAMAGE,
+		TYPE_BOUNCE,
+		TYPE_FLAME_DAMAGE,
+		TYPE_SHOW_ON_MINIMAP
 	};
 	enum Event {
 		EVENT_FRAME,
@@ -187,8 +230,8 @@ public:
 	std::vector<EntityRef*> my_refs;	//will automatically get released when comp is removed
 	std::unordered_set<Event,std::hash<short> > events;
 
-	Component(Entity* e) {
-		entity=e;
+	Component() {
+		entity=nullptr;
 		type=TYPE_SHAPE;
 	}
 	virtual ~Component() {}
@@ -210,14 +253,16 @@ public:
 
 	uint8_t collision_group;
 	uint8_t collision_mask;
+	bool bounce;
 
 	Quad bbox;
 	bool enabled;
 
-	CompShape(Entity* e) : Component(e) {
+	CompShape() {
 		collision_group=1;
 		collision_mask=0xff;
 		enabled=true;
+		bounce=false;
 	}
 
 	void add_quad_center(sf::Vector2f size) {
@@ -235,8 +280,6 @@ class CompDisplay : public Component {
 public:
 	Node root_node;
 	std::vector<GraphicNode::Ptr> nodes;
-
-	CompDisplay(Entity* e);
 
 	GraphicNode* add_texture(const Texture& tex,sf::Vector2f pos) {
 		GraphicNode* n=add_node();
@@ -262,9 +305,7 @@ public:
 		return node;
 	}
 
-	void remove() override {
-		root_node.clear_children();
-	}
+	void remove() override;
 
 	void remove_node(GraphicNode* node) {
 		root_node.remove_child(node);
@@ -291,7 +332,7 @@ public:
 	float angle_spread;
 	int bullet_count;
 
-	CompGun(Entity* e) :  Component(e) {
+	CompGun() {
 		//fire=false;
 		group=0;
 		bullet_speed=700;
@@ -306,9 +347,10 @@ public:
 class CompEngine : public Component {
 public:
 	GraphicNode node;
-	CompEngine(Entity* e);
+
 	void set(const Graphic& g,sf::Vector2f pos) {
 		node.set_graphic(g);
+		node.repeat=true;
 		node.pos=pos-sf::Vector2f(g.get_texture().get_size().x*0.5f,0.0);
 	}
 	void remove() override;
@@ -318,21 +360,23 @@ class CompHealth : public Component {
 public:
 	bool alive;
 	float health;
+	float health_max;
 
-	CompHealth(Entity* e) : Component(e) {
+	CompHealth() {
 		alive=true;
 		health=10;
+		health_max=10;
+	}
+	void reset(float max) {
+		health_max=health=max;
 	}
 };
-
+/*
 class CompInventory : public Component {
 public:
 	std::vector<Entity*> items;
-
-	CompInventory(Entity* e) : Component(e) {
-
-	}
 };
+*/
 class CompTimeout : public Component {
 public:
 	enum Action {
@@ -340,7 +384,7 @@ public:
 	};
 	Action action;
 	float timeout;
-	CompTimeout(Entity* e) : Component(e) {
+	CompTimeout() {
 		action=ACTION_REMOVE_ENTITY;
 		timeout=0;
 	}
@@ -365,7 +409,7 @@ public:
 	sf::Vector2f rand_offset;	//normalized [-1,1]
 	sf::Vector2f target_offset;	//world-space
 
-	CompAI(Entity* e) : Component(e) {
+	CompAI() {
 		ai_type=AI_SUICIDE;
 		rand_offset=Utils::rand_vec(-1,1);
 		target=NULL;
@@ -379,7 +423,7 @@ public:
 	float anim;
 	float anim_duration;
 
-	CompTeleportation(Entity* e) : Component(e) {
+	CompTeleportation() {
 		anim=0.0f;
 		anim_duration=0.0f;
 	}
@@ -391,15 +435,32 @@ public:
 		DAMAGE_TYPE_SCREEN_EFFECT
 	};
 	DamageType damage_type;
+	SimpleTimer timer;
 
-	float time_max;
-	float time;
-
-	CompShowDamage(Entity* e) : Component(e) {
+	CompShowDamage() {
 		damage_type=DAMAGE_TYPE_BLINK;
-		time_max=0.5f;
-		time=0.0f;
+		timer.reset(0.5);
 	}
+};
+class CompBounce : public Component {
+public:
+	sf::Vector2f vel;
+	SimpleTimer timer;
+
+	CompBounce() {
+		timer.reset(1.0);
+	}
+};
+class CompFlameDamage : public Component {
+public:
+	SimpleTimer timer;
+	CompFlameDamage() {
+		timer.reset(0.05);
+	}
+};
+class CompShowOnMinimap : public Component {
+public:
+	Node node;
 };
 
 class Entity {
@@ -420,6 +481,7 @@ public:
 	//dynamics
 	sf::Vector2f pos;	//center
 	sf::Vector2f vel;
+	sf::Vector2f bounce_vel;	//XXX remove
 	float angle;	//deg
 
 	//collisions
@@ -438,10 +500,7 @@ public:
 
 	std::vector<EntityRef*> refs;
 
-	Entity() :
-		display(this),
-		shape(this),
-		health(this) {
+	Entity() {
 		/*
 		for(int i=0;i<COMPONENT_INDEX_SIZE;i++) {
 			components_indexed[i]=NULL;
@@ -468,31 +527,40 @@ public:
 
 class EntityManager {
 
-	Component* component_create(Component::Type type,Entity* e) {
-		Component *c=NULL;
+	Component* component_create(Component::Type type) {
+		Component *c=nullptr;
 		if(type==Component::TYPE_DISPLAY) {
-			c=new CompDisplay(e);
+			c=new CompDisplay();
 		}
 		else if(type==Component::TYPE_SHAPE) {
-			c=new CompShape(e);
+			c=new CompShape();
 		}
 		else if(type==Component::TYPE_GUN) {
-			c=new CompGun(e);
+			c=new CompGun();
 		}
 		else if(type==Component::TYPE_TIMEOUT) {
-			c=new CompTimeout(e);
+			c=new CompTimeout();
 		}
 		else if(type==Component::TYPE_AI) {
-			c=new CompAI(e);
+			c=new CompAI();
 		}
 		else if(type==Component::TYPE_ENGINE) {
-			c=new CompEngine(e);
+			c=new CompEngine();
 		}
 		else if(type==Component::TYPE_TELEPORTATION) {
-			c=new CompTeleportation(e);
+			c=new CompTeleportation();
 		}
 		else if(type==Component::TYPE_SHOW_DAMAGE) {
-			c=new CompShowDamage(e);
+			c=new CompShowDamage();
+		}
+		else if(type==Component::TYPE_BOUNCE) {
+			c=new CompBounce();
+		}
+		else if(type==Component::TYPE_FLAME_DAMAGE) {
+			c=new CompFlameDamage();
+		}
+		else if(type==Component::TYPE_SHOW_ON_MINIMAP) {
+			c=new CompShowOnMinimap();
 		}
 		else {
 			printf("WARN: comp type %d not handled\n",type);
@@ -515,12 +583,19 @@ class EntityManager {
 	SimpleList<Component*> components_to_delete;
 	SimpleList<Entity*> entities_to_remove;
 	SimpleList<Entity*> entities_to_add;
+	SimpleList<Entity*> entities_to_delete;
 	SimpleList<std::pair<Component*,Component::Event> > events_to_add;
 	SimpleList<std::pair<Component*,Component::Event> > events_to_remove;
 
 
 public:
 	std::vector<Entity*> entities;
+
+	//callbacks
+	typedef std::function<void(Component*)> ComponentCallback;
+
+	ComponentCallback on_component_added;
+	ComponentCallback on_component_removed;
 
 	//entities
 	Entity* entity_create() {
@@ -588,13 +663,19 @@ public:
 
 	//"simple" components, no indexing
 	Component* component_add(Entity* entity,Component::Type type) {
-		Component* comp=component_create(type,entity);
+		Component* comp=component_create(type);
 		if(comp==NULL) {
 			return comp;
 		}
+		comp->entity=entity;
 		Utils::vector_fit_size(component_map,type+1);
 		component_map[type].push_back(comp);
 		entity->components.push_back(comp);
+
+		if(on_component_added) {
+			on_component_added(comp);
+		}
+
 		return comp;
 	}
 	void component_remove(Component* component) {
@@ -608,7 +689,7 @@ public:
 				return c;
 			}
 		}
-		return NULL;
+		return nullptr;
 	}
 
 	const std::vector<Component*>& component_list(Component::Type type) {
@@ -644,10 +725,25 @@ public:
 		//entities add/remove
 		if(entities_to_add.size()>0) {
 			for(int i=0;i<entities_to_add.size();i++) {
-				entities.push_back(entities_to_add[i]);
-				for(Component* c : entities_to_add[i]->components) {
+				Entity* e=entities_to_add[i];
+				entities.push_back(e);
+				for(Component* c : e->components) {
 					c->insert();
 				}
+
+				//xxx temp
+				e->display.entity=e;
+				e->display.type=Component::TYPE_DISPLAY;
+				e->shape.entity=e;
+				e->shape.type=Component::TYPE_SHAPE;
+				e->health.entity=e;
+				e->health.type=Component::TYPE_HEALTH;
+				if(on_component_added) {
+					on_component_added(&e->display);
+					on_component_added(&e->shape);
+					on_component_added(&e->health);
+				}
+
 			}
 			entities_to_add.clear();
 		}
@@ -662,6 +758,14 @@ public:
 					printf("entity not in list\n");
 					continue;
 				}
+
+				//xxx temp
+				if(on_component_removed) {
+					on_component_removed(&e->display);
+					on_component_removed(&e->shape);
+					on_component_removed(&e->health);
+				}
+
 				entities.erase(entities.begin()+index);
 
 				for(Component* c : e->components) {
@@ -678,7 +782,7 @@ public:
 					ref->entity=NULL;
 				}
 
-				delete(e);
+				entities_to_delete.push_back(e);
 			}
 			entities_to_remove.clear();
 		}
@@ -703,12 +807,17 @@ public:
 					continue;
 				}
 
+				if(on_component_removed) {
+					on_component_removed(c);
+				}
+
 				for(Component::Event event : c->events) {
 					component_events[c->type][event].erase(c);
 				}
 
 				if(c->entity) {
 					c->remove();
+					Utils::vector_remove(c->entity->components,c);
 					c->entity=NULL;
 				}
 				for(EntityRef* ref : c->my_refs) {
@@ -724,26 +833,140 @@ public:
 			}
 			components_to_remove.clear();
 			components_to_delete.clear();
+
+			for(int i=0;i<entities_to_delete.size();i++) {
+				delete(entities_to_delete[i]);
+			}
+			entities_to_delete.clear();
 		}
 	}
 };
 
-class Controls {
-public:
-	bool move_left;
-	bool move_right;
-	bool move_up;
-	bool move_down;
-
-	Controls() {
-		move_left=false;
-		move_right=false;
-		move_up=false;
-		move_down=false;
-	}
-};
-
 class Game : public Menu {
+
+	class Controls {
+	public:
+		bool move_left;
+		bool move_right;
+		bool move_up;
+		bool move_down;
+
+		Controls() {
+			move_left=false;
+			move_right=false;
+			move_up=false;
+			move_down=false;
+		}
+	};
+	class Minimap : public Node {
+	public:
+
+		class TerrainNode {
+		public:
+			Node node;
+			uint32_t texture_version_id;
+		};
+
+		Node node_bg;
+		Node node_terrain;
+		Node items;
+		sf::Vector2f size;
+		float map_scale;
+
+		Terrain* terrain;
+
+		typedef std::unordered_map<TerrainIsland*,TerrainNode*> IslandMap;
+		IslandMap loaded_islands;
+
+		Minimap() {
+			add_child(&node_bg);
+			add_child(&node_terrain);
+			add_child(&items);
+			node_bg.type=Node::TYPE_SOLID;
+			node_bg.color.set(0,0,0,1);
+			resize(sf::Vector2f(200,200));
+
+			map_scale=0.08;
+			terrain=nullptr;
+			clip_enabled=true;
+		}
+		void resize(sf::Vector2f _size) {
+			size=_size;
+			node_bg.scale=size;
+			clip_quad.p2=size;
+		}
+
+		void update(sf::Vector2f center) {
+
+			Quad world_quad(center-size*0.5f/map_scale,center+size*0.5f/map_scale);
+
+			for(Node* n : items.children) {
+
+				if(world_quad.contains(n->pos)) {
+					n->pos=(n->pos-center)*map_scale+size*0.5f;
+					n->visible=true;
+				}
+				else {
+					n->visible=false;
+				}
+			}
+
+			if(terrain!=nullptr) {
+
+				for(IslandMap::iterator it=loaded_islands.begin();it!=loaded_islands.end();) {
+					if(!terrain->island_intersects(it->first,world_quad)) {
+						//printf("unload island\n");
+						it->second->node.texture.unload();
+						node_terrain.remove_child(&it->second->node);
+						it=loaded_islands.erase(it);
+					}
+					else {
+
+						if(it->first->version_id!=it->second->texture_version_id) {
+							it->first->generate_icon_texture(it->second->node.texture.tex);
+							it->second->texture_version_id=it->first->version_id;
+						}
+
+						it++;
+					}
+				}
+
+				SimpleList<TerrainIsland*>& islands=terrain->list_islands(world_quad);
+
+				for(int i=0;i<islands.size();i++) {
+					TerrainIsland* isl=islands[i];
+					if(terrain->island_intersects(isl,world_quad) && loaded_islands.find(isl)==loaded_islands.end()) {
+						//printf("load island\n");
+						Texture texture=isl->generate_icon_texture();
+
+						if(texture.tex==nullptr) {
+							continue;
+						}
+
+						sf::Vector2f isl_pos=isl->box.p1;
+
+						if(isl_pos.x>world_quad.p2.x) isl_pos.x-=terrain->field_size.x;
+						if(isl_pos.y>world_quad.p2.y) isl_pos.y-=terrain->field_size.y;
+
+						TerrainNode* t_node=new TerrainNode();
+						t_node->node.texture=texture;
+						t_node->node.pos=isl_pos*map_scale;
+						t_node->node.scale=sf::Vector2f(1,1)*(float)isl->cell_size*map_scale;
+						t_node->texture_version_id=isl->version_id;
+
+						node_terrain.add_child(&t_node->node);
+						loaded_islands.insert(std::pair<TerrainIsland*,TerrainNode*>(isl,t_node));
+					}
+				}
+
+				node_terrain.pos=-center*map_scale+size*0.5f;
+			}
+
+		}
+	};
+
+	Minimap minimap;
+
 	SpaceBackground background;
 	Node node_game;
 	Node node_ships;
@@ -777,16 +1000,49 @@ public:
 	int zoom_mode;
 	//bool snap_sprites_to_pixels;
 
+	void component_added(Component* c) {
+
+		if(c->type==Component::TYPE_DISPLAY) {
+			CompDisplay* comp=(CompDisplay*)c;
+			comp->entity->node_main.add_child(&comp->root_node);
+		}
+		else if(c->type==Component::TYPE_ENGINE) {
+			CompEngine* comp=(CompEngine*)c;
+			comp->entity->node_main.add_child(&comp->node);
+		}
+		else if(c->type==Component::TYPE_SHOW_DAMAGE) {
+			entities.event_add(c,Component::EVENT_DAMAGED);
+		}
+		else if(c->type==Component::TYPE_SHOW_ON_MINIMAP) {
+			CompShowOnMinimap* comp=(CompShowOnMinimap*)c;
+			minimap.items.add_child(&comp->node);
+		}
+	}
+	void component_removed(Component* c) {
+
+		if(c->type==Component::TYPE_SHOW_ON_MINIMAP) {
+			CompShowOnMinimap* comp=(CompShowOnMinimap*)c;
+			minimap.items.remove_child(&comp->node);
+		}
+
+	}
+
 	Game() {
 		action_esc=0;
 		zoom_mode=1;
 		time_scale=1.0;
 		//snap_sprites_to_pixels=true;
 
+		minimap.terrain=&terrain;
+
+		entities.on_component_added= [=](Component* c) { this->component_added(c); };
+		entities.on_component_removed= [=](Component* c) { this->component_removed(c); };
+
 		//init
 		background.create_default();
 		node.add_child(&background);
 		node.add_child(&node_game);
+		node.add_child(&minimap);
 		node_game.add_child(&terrain);
 		node_game.add_child(&node_ships);
 
@@ -1045,6 +1301,7 @@ public:
 		player->shape.collision_mask=(CompShape::COLLISION_GROUP_ENEMY|
 				CompShape::COLLISION_GROUP_ENEMY_BULLET|
 				CompShape::COLLISION_GROUP_TERRAIN);
+		player->shape.bounce=true;
 
 		entities.attribute_add(player,Entity::ATTRIBUTE_PLAYER_CONTROL);
 		entities.attribute_add(player,Entity::ATTRIBUTE_FRIENDLY);
@@ -1089,7 +1346,10 @@ public:
 
 		CompShowDamage* c_show_damage=(CompShowDamage*)entities.component_add(player,Component::TYPE_SHOW_DAMAGE);
 		c_show_damage->damage_type=CompShowDamage::DAMAGE_TYPE_SCREEN_EFFECT;
-		entities.event_add(c_show_damage,Component::EVENT_DAMAGED);
+
+		player->health.reset(100);
+
+		entity_show_on_minimap(player,Color(1,1,1,1));
 
 		return player;
 	}
@@ -1118,6 +1378,7 @@ public:
 
 		entities.attribute_add(bullet,Entity::ATTRIBUTE_REMOVE_ON_DEATH);
 		entity_add_timeout(bullet,CompTimeout::ACTION_REMOVE_ENTITY,2.0f);
+
 		return bullet;
 	}
 	Entity* create_missile(const Graphic& g,Entity* target,bool player_side) {
@@ -1169,13 +1430,15 @@ public:
 		k->shape.collision_mask=(CompShape::COLLISION_GROUP_TERRAIN|
 				CompShape::COLLISION_GROUP_PLAYER|
 				CompShape::COLLISION_GROUP_PLAYER_BULLET);
+		k->shape.bounce=true;
 
 
 		CompShowDamage* c_show_damage=(CompShowDamage*)entities.component_add(k,Component::TYPE_SHOW_DAMAGE);
 		c_show_damage->damage_type=CompShowDamage::DAMAGE_TYPE_BLINK;
-		entities.event_add(c_show_damage,Component::EVENT_DAMAGED);
 
-		k->health.health=100;
+		entity_show_on_minimap(k,Color(1,0,0,1));
+
+		k->health.reset(100);
 		return k;
 	}
 	Entity* create_enemy_suicide(const Graphic& g) {
@@ -1240,12 +1503,16 @@ public:
 
 		CompShowDamage* c_show_damage=(CompShowDamage*)entities.component_get(e,Component::TYPE_SHOW_DAMAGE);
 		if(c_show_damage) {
-			c_show_damage->time=0.0;
+			c_show_damage->timer.reset();
 			entities.event_add(c_show_damage,Component::EVENT_FRAME);
 
 			if(c_show_damage->damage_type==CompShowDamage::DAMAGE_TYPE_SCREEN_EFFECT) {
 				use_shader_damage=true;
 			}
+		}
+
+		if(e->health.health/e->health.health_max<0.3 && entities.component_get(e,Component::TYPE_FLAME_DAMAGE)==nullptr) {
+			entities.component_add(e,Component::TYPE_FLAME_DAMAGE);
 		}
 
 		if(e->health.health<=0 && e->health.alive) {
@@ -1256,6 +1523,13 @@ public:
 				entity_remove(e);
 			}
 		}
+	}
+	void entity_show_on_minimap(Entity* e,Color color) {
+		CompShowOnMinimap* c=(CompShowOnMinimap*)entities.component_add(e,Component::TYPE_SHOW_ON_MINIMAP);
+		c->node.type=Node::TYPE_SOLID;
+		c->node.color=color;
+		c->node.scale=sf::Vector2f(4,4);
+		c->node.origin=sf::Vector2f(2,2);
 	}
 
 	void launch_missiles(int count,sf::Vector2f pos,bool player_side) {
@@ -1338,13 +1612,18 @@ public:
 					Quad q2=q;
 					q2.translate(e->pos);
 
+					//terrain collision
 					if(e->shape.collision_mask&CompShape::COLLISION_GROUP_TERRAIN) {
 						sf::Vector2f q_size=q2.p2-q2.p1;
 
 						sf::FloatRect r(q2.p1,q_size);
-						if(terrain.check_collision(r)) {
+						sf::Vector2f col_normal;
+						if(terrain.check_collision(r,col_normal)) {
 							terrain.damage_area(r);
 							entity_damage(e,10);
+							CompBounce* c_bounce=(CompBounce*)entities.component_add(e,Component::TYPE_BOUNCE);
+							c_bounce->timer.reset(0.3);
+							c_bounce->vel=Utils::vec_reflect(e->vel,col_normal);
 						}
 					}
 
@@ -1367,6 +1646,18 @@ public:
 							if(q2.intersects(cq2)) {
 								entity_damage(e,10);
 								entity_damage(ce,10);
+
+								if(e->shape.bounce && ce->shape.bounce) {
+									sf::Vector2f b_vel=Utils::vec_normalize(e->pos-ce->pos)*100.0f;
+
+									CompBounce* c_bounce1=(CompBounce*)entities.component_add(e,Component::TYPE_BOUNCE);
+									c_bounce1->timer.reset(0.3);
+									c_bounce1->vel=b_vel;
+
+									CompBounce* c_bounce2=(CompBounce*)entities.component_add(ce,Component::TYPE_BOUNCE);
+									c_bounce2->timer.reset(0.3);
+									c_bounce2->vel=-b_vel;
+								}
 							}
 						}
 					}
@@ -1483,6 +1774,8 @@ public:
 			tele->origin_node.pos=c_pos;
 			tele->origin_node.rotation=Utils::rad_to_deg(Utils::vec_angle(tele->destination-tele->origin))-90;
 			tele->origin_node.scale=sf::Vector2f(s,2.0f-s);
+			float c=s*s*s;
+			tele->origin_node.color_add.set(c,c,c,0);
 
 			tele->entity->node_main.visible=false;//scale=sf::Vector2f(a,2.0f-a);
 			tele->entity->pos=c_pos;
@@ -1492,8 +1785,8 @@ public:
 		for(Component* ccomp : entities.event_list_components(Component::TYPE_SHOW_DAMAGE,Component::EVENT_FRAME)) {
 			CompShowDamage* comp=(CompShowDamage*)ccomp;
 
-			comp->time+=dt;
-			if(comp->time>=comp->time_max) {
+			comp->timer.update(dt);
+			if(comp->timer.is_done()) {
 				entities.event_remove(comp,Component::EVENT_FRAME);
 
 				if(comp->damage_type==CompShowDamage::DAMAGE_TYPE_BLINK) {
@@ -1506,7 +1799,7 @@ public:
 				continue;
 			}
 
-			float a=1.0f-comp->time/comp->time_max;
+			float a=1.0f-comp->timer.get_percentage();
 
 			if(comp->damage_type==CompShowDamage::DAMAGE_TYPE_BLINK) {
 				comp->entity->node_main.color_add.set(a,a,a,0);
@@ -1515,6 +1808,32 @@ public:
 				shader_damage.set_param("amount",a*0.01);
 			}
 		}
+		for(Component* ccomp : entities.component_list(Component::TYPE_BOUNCE)) {
+			CompBounce* comp=(CompBounce*)ccomp;
+			comp->timer.update(dt);
+			if(comp->timer.is_done()) {
+				comp->entity->bounce_vel=sf::Vector2f(0,0);
+				entities.component_remove(comp);
+				continue;
+			}
+			comp->entity->vel=comp->vel*(1.0f-comp->timer.get_percentage());
+		}
+		for(Component* ccomp : entities.component_list(Component::TYPE_FLAME_DAMAGE)) {
+			CompFlameDamage* comp=(CompFlameDamage*)ccomp;
+
+			comp->timer.update(dt);
+			if(comp->timer.is_done()) {
+				comp->timer.reset(0.03);
+
+				add_decal(Utils::vector_rand(graphic_explosion),comp->entity->pos+
+						sf::Vector2f(Utils::rand_range(-1,1),Utils::rand_range(-1,1))*20.0f);
+			}
+		}
+		for(Component* ccomp : entities.component_list(Component::TYPE_SHOW_ON_MINIMAP)) {
+			CompShowOnMinimap* comp=(CompShowOnMinimap*)ccomp;
+			comp->node.pos=comp->entity->pos;
+		}
+
 
 		entities.update();
 		//xxx
@@ -1547,6 +1866,7 @@ public:
 
 		background.update(camera_rect);
 		terrain.update_visual(camera_rect);
+		minimap.update(camera_pos);
 
 		//post process
 		node.post_process_shaders.clear();
@@ -1626,6 +1946,9 @@ public:
 	void event_resize() override {
 		node_game.scale.x=node_game.scale.y=(zoom_mode+1);
 		background.scale=node_game.scale;
+
+		minimap.pos.x=0;
+		minimap.pos.y=size.y-minimap.size.y;
 	}
 };
 

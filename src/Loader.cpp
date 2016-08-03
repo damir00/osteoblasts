@@ -16,10 +16,7 @@ Texture load_texture(const std::string& path) {
 	return Texture(t);
 }
 void unload_texture(Texture texture) {
-	if(texture.tex==NULL) {
-		return;
-	}
-	delete(texture.tex);
+	texture.unload();
 }
 
 sf::Image* load_image(const std::string& path) {

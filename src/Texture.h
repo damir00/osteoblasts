@@ -25,12 +25,10 @@ public:
 
 	sf::Vector2f get_size() const {
 		return sf::Vector2f(rect.width,rect.height);
-		/*
-		if(!tex) {
-			return sf::Vector2f(0,0);
-		}
-		return Utils::vec_to_f(tex->getSize());
-		*/
+	}
+	void unload() {
+		delete(tex);
+		tex=NULL;
 	}
 };
 

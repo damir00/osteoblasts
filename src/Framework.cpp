@@ -1,5 +1,7 @@
 #include <stdio.h>
 
+#include <GL/gl.h>
+
 #include <SFML/OpenGL.hpp>
 #include <SFML/Window.hpp>
 #include <SFML/Graphics.hpp>
@@ -9,6 +11,7 @@
 #include "Menu.h"
 #include "Utils.h"
 #include "Loader.h"
+#include "Quad.h"
 
 namespace {
 
@@ -67,8 +70,11 @@ class Renderer {
 			}
 
 			new_state.sfml_state.shader=s;
-			s->setParameter("color",new_state.color.sfColor());
-			s->setParameter("color_add",new_state.color_add.sfColor());
+
+			if(!(node->type==Node::TYPE_NO_RENDER || (node->type==Node::TYPE_TEXTURE && node->texture.tex==nullptr) )) {
+				s->setParameter("color",new_state.color.sfColor());
+				s->setParameter("color_add",new_state.color_add.sfColor());
+			}
 		}
 
 
@@ -81,6 +87,14 @@ class Renderer {
 		}
 		new_state.target_current=target;
 
+		if(node->clip_enabled) {
+			glEnable(GL_SCISSOR_TEST);
+
+			sf::FloatRect sc=new_state.sfml_state.transform.transformRect(
+					sf::FloatRect(node->clip_quad.p1,node->clip_quad.p2-node->clip_quad.p1));
+
+			glScissor(sc.left,target->getSize().y-sc.top-sc.height,sc.width,sc.height);
+		}
 
 		switch(node->type) {
 		case Node::TYPE_NO_RENDER:
@@ -104,6 +118,10 @@ class Renderer {
 		}
 		for(Node* child : node->children) {
 			render_node(child,new_state);
+		}
+
+		if(node->clip_enabled) {
+			glDisable(GL_SCISSOR_TEST);
 		}
 
 

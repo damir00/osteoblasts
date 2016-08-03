@@ -7,6 +7,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "Quad.h"
 #include "Texture.h"
 
 class Color {
@@ -103,6 +104,9 @@ public:
 
 	std::vector<Node*> children;
 
+	bool clip_enabled;
+	Quad clip_quad;
+
 	Color color;
 	Color color_add;
 	NodeShader shader;
@@ -122,6 +126,7 @@ public:
 
 	Node() {
 		visible=true;
+		clip_enabled=false;
 		type=TYPE_TEXTURE;
 		scale=sf::Vector2f(1,1);
 		rotation=0;

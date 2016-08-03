@@ -230,6 +230,8 @@ TerrainIsland::TerrainIsland(Quad _box) {
 	//render_state.transform.translate(box.start);
 	terrain_texture.from_sfimage(Loader::get_image("terrain/texture.png"));
 
+	version_id=0;
+
 	if(!loader) {
 		loader=new TerrainLoader();
 	}
@@ -405,13 +407,14 @@ void TerrainIsland::init() {
 			}
 			else {
 				map[i].active=true;
-				float d=cell_size/2;
-				map[i].pos.x=x*cell_size+Utils::rand_range(-d,d);
-				map[i].pos.y=y*cell_size+Utils::rand_range(-d,d);
-				map[i].size=Utils::rand_range(cell_size*0.5,cell_size*0.75);
+				//float d=cell_size/2;
+				//map[i].pos.x=x*cell_size+Utils::rand_range(-d,d);
+				//map[i].pos.y=y*cell_size+Utils::rand_range(-d,d);
+				//map[i].size=Utils::rand_range(cell_size*0.5,cell_size*0.75);
 			}
 		}
 	}
+	version_id++;
 }
 void TerrainIsland::load() {
 	if(!map || loaded) return;
@@ -506,6 +509,8 @@ void TerrainIsland::damage_area(const sf::FloatRect& rect) {
 
 	load_mutex.unlock();
 
+	version_id++;
+
 	if(!loaded) {
 		return;
 	}
@@ -535,6 +540,38 @@ bool TerrainIsland::check_collision(const sf::FloatRect& rect) {
 	}
 	return false;
 }
+bool TerrainIsland::check_collision(const sf::FloatRect& rect,sf::Vector2f& normal) {
+	if(!map) return false;
+
+	//float mult=1.0f/(cell_size*3.0);
+	float mult=1.0f/(cell_size);
+	int x1=Utils::clampi(0,w,std::floor( rect.left *mult+0.5f ));
+	int y1=Utils::clampi(0,h,std::floor( rect.top  *mult+0.5f ));
+	int x2=Utils::clampi(0,w,std::ceil( (rect.left+rect.width) *mult+0.5f ));
+	int y2=Utils::clampi(0,h,std::ceil( (rect.top+rect.height) *mult+0.5f ));
+
+	sf::Vector2f rect_p=sf::Vector2f(rect.left,rect.top)+sf::Vector2f(rect.width,rect.height)*0.5f;
+	rect_p=rect_p*mult;
+
+	bool collision=false;
+
+	normal.x=normal.y=0.0f;
+
+	for(int x=x1;x<x2;x++) {
+		for(int y=y1;y<y2;y++) {
+			int map_i=y*w+x;
+			if(map[map_i].active) {
+				collision=true;
+				normal+=(rect_p-sf::Vector2f(x,y));
+			}
+		}
+	}
+
+	if(collision) {
+		normal=Utils::vec_normalize(normal);
+	}
+	return collision;
+}
 bool TerrainIsland::check_collision(const sf::Vector2f& pos) {
 	if(!map) return false;
 
@@ -548,15 +585,37 @@ bool TerrainIsland::check_collision(const sf::Vector2f& pos) {
 
 	return map[y*w+x].active;
 }
+Texture TerrainIsland::generate_icon_texture() {
+	if(!map) {
+		return Texture();
+	}
 
-/*
-void TerrainIsland::draw(const NodeState& state) {
-	if(!loaded) return;
-	sf::RenderStates s=state.render_state;
-	s.transform.translate(offset);
-	state.render_target->draw(sprite,s);
+	sf::Texture* tex=new sf::Texture();
+	tex->create(w,h);
+	generate_icon_texture(tex);
+	return Texture(tex);
 }
-*/
+void TerrainIsland::generate_icon_texture(sf::Texture* tex) {
+	if(!map) {
+		return;
+	}
+
+	sf::Uint8* pixels=new sf::Uint8[w*h*4];
+
+	for(int x=0;x<w;x++) {
+		for(int y=0;y<h;y++) {
+			sf::Uint8* dst=pixels+(x+y*w)*4;
+			dst[0]=128;
+			dst[1]=128;
+			dst[2]=128;
+			dst[3]= (map[y*w+x].active ? 255 : 0);
+		}
+	}
+
+	tex->update(pixels);
+
+	delete[] pixels;
+}
 
 
 
@@ -653,37 +712,36 @@ Terrain::Terrain() {
 }
 
 
-namespace {
-	//handles terrain wrapping
-	SimpleList<TerrainIsland*>& list_islands(const Quad& _quad,const Quad& area_quad,Octree<TerrainIsland*>& tree) {
-		Quad quad=_quad.mod(area_quad);
+//handles terrain wrapping
+SimpleList<TerrainIsland*>& Terrain::list_islands(const Quad& _quad) {
+	Quad area_quad(sf::Vector2f(0,0),field_size);
+	Quad quad=_quad.mod(area_quad);
 
-		SimpleList<TerrainIsland*>& list=tree.query(quad);
+	SimpleList<TerrainIsland*>& list=octree.query(quad);
 
-		bool overflow_x=(quad.p2.x>tree.quad.p2.x);
-		bool overflow_y=(quad.p2.y>tree.quad.p2.y);
-		sf::Vector2f tree_size=tree.quad.size();
+	bool overflow_x=(quad.p2.x>octree.quad.p2.x);
+	bool overflow_y=(quad.p2.y>octree.quad.p2.y);
+	sf::Vector2f tree_size=octree.quad.size();
 
-		if(overflow_x) {
-			Quad q=quad;
-			q.p1.x-=tree_size.x;
-			q.p2.x-=tree_size.x;
-			tree.query_list(q,list);
-		}
-		if(overflow_y) {
-			Quad q=quad;
-			q.p1.y-=tree_size.y;
-			q.p2.y-=tree_size.y;
-			tree.query_list(q,list);
-		}
-		if(overflow_x && overflow_y) {
-			Quad q=quad;
-			q.p1-=tree_size;
-			q.p2-=tree_size;
-			tree.query_list(q,list);
-		}
-		return list;
+	if(overflow_x) {
+		Quad q=quad;
+		q.p1.x-=tree_size.x;
+		q.p2.x-=tree_size.x;
+		octree.query_list(q,list);
 	}
+	if(overflow_y) {
+		Quad q=quad;
+		q.p1.y-=tree_size.y;
+		q.p2.y-=tree_size.y;
+		octree.query_list(q,list);
+	}
+	if(overflow_x && overflow_y) {
+		Quad q=quad;
+		q.p1-=tree_size;
+		q.p2-=tree_size;
+		octree.query_list(q,list);
+	}
+	return list;
 }
 
 void Terrain::update_visual(const sf::FloatRect& _rect) {
@@ -711,7 +769,7 @@ void Terrain::update_visual(const sf::FloatRect& _rect) {
 	sf::Vector2f p1(_rect.left,_rect.top);
 	sf::Vector2f p2=p1+sf::Vector2f(_rect.width,_rect.height);
 	Quad query_quad(p1,p2);
-	const SimpleList<TerrainIsland*>& list=list_islands(query_quad,Quad(sf::Vector2f(0,0),field_size),octree);
+	const SimpleList<TerrainIsland*>& list=list_islands(query_quad);
 
 	for(int i=0;i<loaded_islands.size();i++) {
 		TerrainIsland* island=loaded_islands[i];
@@ -754,7 +812,7 @@ void Terrain::update_visual(const sf::FloatRect& _rect) {
 void Terrain::damage_area(const sf::FloatRect& rect) {
 	sf::Vector2f p1=sf::Vector2f(rect.left,rect.top);
 	sf::Vector2f p2=p1+sf::Vector2f(rect.width,rect.height);
-	const SimpleList<TerrainIsland*>& list=list_islands(Quad(p1,p2),Quad(sf::Vector2f(0,0),field_size),octree);
+	const SimpleList<TerrainIsland*>& list=list_islands(Quad(p1,p2));
 
 	for(int i=0;i<list.size();i++) {
 		TerrainIsland* island=list[i];
@@ -768,7 +826,7 @@ void Terrain::damage_area(const sf::FloatRect& rect) {
 bool Terrain::check_collision(const sf::FloatRect& rect) {
 	sf::Vector2f p1=sf::Vector2f(rect.left,rect.top);
 	sf::Vector2f p2=p1+sf::Vector2f(rect.width,rect.height);
-	SimpleList<TerrainIsland*>& list=list_islands(Quad(p1,p2),Quad(sf::Vector2f(0,0),field_size),octree);
+	SimpleList<TerrainIsland*>& list=list_islands(Quad(p1,p2));
 
 	for(int i=0;i<list.size();i++) {
 		TerrainIsland* island=list[i];
@@ -782,6 +840,24 @@ bool Terrain::check_collision(const sf::FloatRect& rect) {
 	}
 	return false;
 }
+bool Terrain::check_collision(const sf::FloatRect& rect,sf::Vector2f& normal) {
+	sf::Vector2f p1=sf::Vector2f(rect.left,rect.top);
+	sf::Vector2f p2=p1+sf::Vector2f(rect.width,rect.height);
+	SimpleList<TerrainIsland*>& list=list_islands(Quad(p1,p2));
+
+	for(int i=0;i<list.size();i++) {
+		TerrainIsland* island=list[i];
+
+		sf::FloatRect r1=rect;
+		r1.left-=island->box.p1.x+island->offset.x;
+		r1.top-=island->box.p1.y+island->offset.y;
+		if(island->check_collision(r1,normal)) {
+			return true;
+		}
+	}
+	return false;
+}
+
 bool Terrain::check_collision(const sf::Vector2f& pos) {
 	for(TerrainIsland* island : islands) {
 		if(island->check_collision(pos-island->box.p1-island->offset)) {
@@ -790,5 +866,44 @@ bool Terrain::check_collision(const sf::Vector2f& pos) {
 	}
 	return false;
 }
+bool Terrain::island_intersects(TerrainIsland* island,const Quad& _quad) {
+	//handle wrapping
+	Quad area_quad(sf::Vector2f(0,0),field_size);
+	Quad quad=_quad.mod(area_quad);
+
+	bool overflow_x=(quad.p2.x>area_quad.p2.x);
+	bool overflow_y=(quad.p2.y>area_quad.p2.y);
+
+	if(island->box.intersects(quad)) {
+		return true;
+	}
+	if(overflow_x) {
+		Quad q=quad;
+		q.p1.x-=field_size.x;
+		q.p2.x-=field_size.x;
+		if(island->box.intersects(q)) {
+			return true;
+		}
+	}
+	if(overflow_y) {
+		Quad q=quad;
+		q.p1.y-=field_size.y;
+		q.p2.y-=field_size.y;
+		if(island->box.intersects(q)) {
+			return true;
+		}
+	}
+	if(overflow_x && overflow_y) {
+		Quad q=quad;
+		q.p1-=field_size;
+		q.p2-=field_size;
+		if(island->box.intersects(q)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 
 

@@ -96,37 +96,41 @@ public:
 
 class TestMenu : public Menu {
 public:
-	Node t_node;
+	Node foo;
 
 	TestMenu() {
-		node.add_child(&t_node);
+		node.add_child(&foo);
 
-		t_node.type=Node::TYPE_SOLID;
-		t_node.color.set(1,0.5,0,1);
-		t_node.pos=sf::Vector2f(10,10);
-		//t_node.scale=sf::Vector2f(100,200);
+		foo.pos=sf::Vector2f(12,34);
+		//foo.scale=sf::Vector2f(100,100);
+		foo.type=Node::TYPE_TEXTURE;
 
-		for(int i=0;i<100;i++) {
-			Node* n=new Node();
-			n->type=Node::TYPE_SOLID;
-			n->color=Color::rand();
-			n->pos=Utils::rand_vec(0,1500);
-			n->scale=Utils::rand_vec(10,50);
-			t_node.add_child(n);
+		Texture tex;
+		tex.tex=new sf::Texture();
+
+		int w=32;
+		int h=32;
+		bool create_ret=tex.tex->create(w,h);
+		printf("create: %d\n",create_ret);
+
+		sf::Uint8* pixels=new sf::Uint8[w*h*4];
+
+		for(int x=0;x<w;x++) {
+			for(int y=0;y<h;y++) {
+				sf::Uint8* dst=pixels+(x+y*w)*4;
+				dst[0]=255*y/h;
+				dst[1]=0;
+				dst[2]=0;
+				dst[3]=255;
+			}
 		}
+		tex.tex->update(pixels);
+		delete[] pixels;
 
-		NodeShader shader1;
-		shader1.shader=Loader::get_shader("shader/boom.frag");
-		shader1.set_param("freq",5);
-		shader1.set_param("amount",0.01);
-		t_node.post_process_shaders.push_back(shader1);
-
-		NodeShader shader2;
-		shader2.shader=Loader::get_shader("shader/test1.frag");
-		//shader2.set_param("freq",5);
-		//shader2.set_param("amount",0.01);
-		t_node.post_process_shaders.push_back(shader2);
-}
+		//tex.tex->
+		foo.texture=Texture(tex.tex);
+		//foo.texture=Loader::get_texture("general assets/explosions.png");
+	}
 
 };
 
@@ -145,7 +149,6 @@ int main(int argc,char** argv) {
 	Loader::init();
 	Framework f;
 
-
 	/*
 	TestMenu test_menu;
 	f.get_root_menu()->add_child(&test_menu);
@@ -158,6 +161,7 @@ int main(int argc,char** argv) {
 	if(argc>1 && (std::string)argv[1]=="-s") {
 		main_menu.go_game();
 	}
+
 
 	f.run();
 
