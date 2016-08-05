@@ -1,33 +1,3 @@
-options icon - 30x487 
-exit icon - 907x487 
-start button - 435x398
-BOOM - 128x96
-Goes - 623x97
-the - 618x125
-Asteroid - 623x145
-red lines - 37x80
-white lines - 0x407
-background color in hex 140c1c or R20 G12 B28
-
-i want BOOM to follow that 3d effect at certain moments, when the player presses every 2nd button/click
-and when he presses the START button at start screen
-like the one when ship goes into collision with anything
-
-then, i want these red lines to pulse, gain and lose saturation
-
-and the letter "goes the asteroid" also to pulse a bit, some random letters to lose half or 30% of opacity
-for a 0.3 or 0.5 seconds
-
-can you pick other colors for the 3d? like traditional blue and red?
-
-and as for the background, yes please make this black overlay more transparent and
-beneath it the scrollable background from game but I think without the terrain
-
-[20:03:06] Igor Grincu: I want the blinking to be immediate, very short delay
-[20:03:17] Igor Grincu: and at max 3 letters at a time
-[20:03:32] Igor Grincu: as for the frequency, not sure yet
-
-white lines + bg
 -----------
 codebase refactor
 import new game assets
@@ -36,13 +6,12 @@ shaders
 RTTs
 terrain & ship bounce
 damage flames
-
 minimap
 
 weapons cooloff
 laser
 
-remove CompDisplay from Entity
+remove CompDisplay/Shape/Health from Entity
 
 hud
 get rid of 90deg graphics-physics offset

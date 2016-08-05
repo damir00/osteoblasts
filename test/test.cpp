@@ -58,7 +58,9 @@ public:
 int main() {
 	Loader::init();
 	Framework f;
+
 	Test test;
+
 	f.get_root_menu()->add_child(&test);
 	f.run();
 

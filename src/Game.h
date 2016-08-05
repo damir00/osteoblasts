@@ -1583,6 +1583,15 @@ public:
 			e->fire_gun[0]=pressed;
 			e->fire_gun[1]=pressed_right;
 
+			for(int i=0;i<8;i++) {
+				if(e->fire_gun[i]) {
+					for(int i2=i+1;i2<8;i2++) {
+						e->fire_gun[i2]=false;
+					}
+					break;
+				}
+			}
+
 			float max_vel=200;
 			sf::Vector2f vel;
 			if(controls.move_up) vel.y-=1.0;

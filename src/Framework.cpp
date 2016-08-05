@@ -87,12 +87,10 @@ class Renderer {
 		}
 		new_state.target_current=target;
 
-		if(node->clip_enabled) {
+		if(node->clip_enabled) {	//TODO clip nesting
 			glEnable(GL_SCISSOR_TEST);
-
 			sf::FloatRect sc=new_state.sfml_state.transform.transformRect(
 					sf::FloatRect(node->clip_quad.p1,node->clip_quad.p2-node->clip_quad.p1));
-
 			glScissor(sc.left,target->getSize().y-sc.top-sc.height,sc.width,sc.height);
 		}
 
