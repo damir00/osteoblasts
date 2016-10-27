@@ -1,6 +1,10 @@
 #include <stdio.h>
 
-#include <GL/gl.h>
+#if defined(__APPLE__)
+	#include <OpenGL/gl.h>
+#else
+	#include <GL/gl.h>
+#endif
 
 #include <SFML/OpenGL.hpp>
 #include <SFML/Window.hpp>

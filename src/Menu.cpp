@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <cmath>
 
 #include "Utils.h"
 #include "Menu.h"

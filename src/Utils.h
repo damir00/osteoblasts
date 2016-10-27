@@ -2,8 +2,9 @@
 #define _BGA_UTILS_H_
 
 #include <stdlib.h>
-#include <vector>
 #include <math.h>
+#include <vector>
+#include <cmath>
 
 #include <SFML/System.hpp>
 #include <SFML/Graphics.hpp>

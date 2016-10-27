@@ -217,7 +217,10 @@ public:
 		TYPE_SHOW_DAMAGE,
 		TYPE_BOUNCE,
 		TYPE_FLAME_DAMAGE,
-		TYPE_SHOW_ON_MINIMAP
+		TYPE_SHOW_ON_MINIMAP,
+		TYPE_GRAVITY_FORCE,
+		TYPE_SHIELD,
+		TYPE_HAMMER
 	};
 	enum Event {
 		EVENT_FRAME,
@@ -381,6 +384,7 @@ class CompTimeout : public Component {
 public:
 	enum Action {
 		ACTION_REMOVE_ENTITY,
+		ACTION_BIG_EXPLOSION
 	};
 	Action action;
 	float timeout;
@@ -400,7 +404,8 @@ public:
 		AI_SUICIDE,
 		AI_MELEE,
 		AI_SHOOTER,
-		AI_MISSILE
+		AI_MISSILE,
+		AI_FOLLOWER
 	};
 	AIType ai_type;
 
@@ -463,6 +468,43 @@ public:
 	Node node;
 };
 
+class CompGravityForce : public Component {
+public:
+	bool enabled;
+	float radius;
+	float power_center;
+	float power_edge;
+
+	CompGravityForce() {
+		enabled=true;
+		radius=100;
+		power_center=10;
+		power_edge=0;
+	}
+};
+
+class CompShield : public Component {
+public:
+	Node node;
+	std::vector<Node::Ptr> layers;
+	float anim;
+	CompShield() {
+		anim=0;
+	}
+};
+
+class CompHammer : public Component {
+public:
+	Node* hammer_node;
+	CompGravityForce* my_gravity_force;
+	bool enabled;
+	float anim;
+
+	CompHammer() {
+		enabled=false;
+	}
+};
+
 class Entity {
 public:
 	//attributes
@@ -471,6 +513,7 @@ public:
 		ATTRIBUTE_PLAYER_CONTROL,
 		ATTRIBUTE_ENEMY,		//all enemies
 		ATTRIBUTE_FRIENDLY,		//all friendlies
+		ATTRIBUTE_ATTRACT		//candy mine
 	};
 
 	//XXX move all members to comps/attrs
@@ -493,6 +536,9 @@ public:
 	bool player_side;
 	bool fire_gun[8];
 
+	float tmp_damage;
+	float tmp_timeout[10];
+
 	//Component* components_indexed[COMPONENT_INDEX_SIZE];
 	//std::vector<Component*> components_unindexed;
 	std::vector<Component*> components;
@@ -509,6 +555,9 @@ public:
 		angle=270;	//point up by default
 		for(int i=0;i<8;i++) fire_gun[i]=false;
 		player_side=false;
+
+		tmp_damage=10;
+		for(int i=0;i<10;i++) tmp_timeout[i]=0;
 	}
 };
 /*
@@ -561,6 +610,15 @@ class EntityManager {
 		}
 		else if(type==Component::TYPE_SHOW_ON_MINIMAP) {
 			c=new CompShowOnMinimap();
+		}
+		else if(type==Component::TYPE_GRAVITY_FORCE) {
+			c=new CompGravityForce();
+		}
+		else if(type==Component::TYPE_SHIELD) {
+			c=new CompShield();
+		}
+		else if(type==Component::TYPE_HAMMER) {
+			c=new CompHammer();
 		}
 		else {
 			printf("WARN: comp type %d not handled\n",type);
@@ -842,6 +900,81 @@ public:
 	}
 };
 
+class SwarmManagerCtrl {
+public:
+	sf::Vector2f pos;
+	bool fire;
+
+	SwarmManagerCtrl() {
+		pos=sf::Vector2f(0,0);
+		fire=false;
+	}
+	SwarmManagerCtrl(sf::Vector2f _pos,bool _fire) {
+		pos=_pos;
+		fire=_fire;
+	}
+};
+
+class SwarmManager {
+public:
+
+	int pattern;
+	//0 = circling
+	//1 = intruders
+
+
+	float anim;
+	std::vector<EntityRef*> entities;
+
+	SwarmManager() {
+		pattern=0;
+		anim=0;
+	}
+
+	SwarmManagerCtrl get_entity_pos(int index) {
+		if(entities.empty()) {
+			return SwarmManagerCtrl();
+		}
+		if(pattern==0) {
+			float dist=200;
+			float duration=0.3;
+
+			float a=(float)index/(float)entities.size();
+			float angle=Utils::lerp(0,360,a)+anim/duration*20.0f;
+
+			bool fire=(fmod(angle+anim*50.0f,360.0f)<90.0f);
+			return SwarmManagerCtrl(Utils::vec_for_angle_deg(angle,dist),fire);
+		}
+		if(pattern==1) {
+			float w=400;
+			float h=300;
+
+			float fi=index;
+
+			int row_size=4;
+
+			int ix=index%row_size;
+			int iy=index/row_size;
+
+			float fx=(float)ix/3.0f;
+
+			sf::Vector2f pos;
+
+			pos.x=-w/2.0f+Utils::lerp(0,w,fx);
+			pos.y=-100-iy*70;
+
+			pos.x+=w*0.5f*sin(anim+fi*0.2f);
+
+			bool fire=(sin(anim*1.23f+fi*12.3f)>0.5f);
+
+			return SwarmManagerCtrl(pos,fire);
+		}
+
+		return SwarmManagerCtrl();
+	}
+};
+
+
 class Game : public Menu {
 
 	class Controls {
@@ -965,6 +1098,56 @@ class Game : public Menu {
 		}
 	};
 
+	class CamShake {
+	public:
+
+		float timeout;
+		float duration;
+		float gain;
+		sf::Vector2f offset;
+
+		CamShake() {
+			offset.x=0;
+			offset.y=0;
+
+			timeout=0;
+			gain=5;
+			duration=0.2;
+		}
+		void start() {
+			timeout=duration;
+		}
+		void frame(float delta) {
+			if(timeout<=0.0) {
+				return;
+			}
+			timeout-=delta;
+			if(timeout<=0.0) {
+				timeout=0.0;
+			}
+			float g=gain*timeout/duration;
+			offset.x=Utils::rand_range(-1,1)*g;
+			offset.y=Utils::rand_range(-1,1)*g;
+		}
+	};
+
+	class WaveManager {
+	public:
+
+		float timeout;
+
+		WaveManager() {
+			timeout=2;
+		}
+	};
+
+	CamShake cam_shake;
+	WaveManager wave_manager;
+
+	std::vector<SwarmManager*> swarms;
+
+	Node help_text_node;
+
 	Minimap minimap;
 
 	SpaceBackground background;
@@ -1000,6 +1183,9 @@ public:
 	int zoom_mode;
 	//bool snap_sprites_to_pixels;
 
+	int player_ship;
+	int selected_level;
+
 	void component_added(Component* c) {
 
 		if(c->type==Component::TYPE_DISPLAY) {
@@ -1017,6 +1203,10 @@ public:
 			CompShowOnMinimap* comp=(CompShowOnMinimap*)c;
 			minimap.items.add_child(&comp->node);
 		}
+		else if(c->type==Component::TYPE_SHIELD) {
+			CompShield* comp=(CompShield*)c;
+			comp->entity->node_main.add_child(&comp->node);
+		}
 	}
 	void component_removed(Component* c) {
 
@@ -1024,10 +1214,18 @@ public:
 			CompShowOnMinimap* comp=(CompShowOnMinimap*)c;
 			minimap.items.remove_child(&comp->node);
 		}
+		else if(c->type==Component::TYPE_SHIELD) {
+			CompShield* comp=(CompShield*)c;
+			comp->entity->node_main.remove_child(&comp->node);
+		}
 
 	}
 
 	Game() {
+
+		player_ship=0;
+		selected_level=0;
+
 		action_esc=0;
 		zoom_mode=1;
 		time_scale=1.0;
@@ -1043,8 +1241,15 @@ public:
 		node.add_child(&background);
 		node.add_child(&node_game);
 		node.add_child(&minimap);
+		node.add_child(&help_text_node);
 		node_game.add_child(&terrain);
 		node_game.add_child(&node_ships);
+
+
+		help_text_node.type=Node::TYPE_TEXT;
+		help_text_node.text.setFont(*Loader::get_menu_font());
+		help_text_node.text.setCharacterSize(22);
+		help_text_node.pos=sf::Vector2f(10,10);
 
 
 		//populate some assets
@@ -1234,10 +1439,33 @@ public:
 		}
 		entities.update();
 
+		const char* help_texts[]={
+				"Bastion\nQ - shield\nE - attract\nR - candy mine\nSPACE - hammer",
+				"Engineer\nQ - mine\nE - helper\nSPACE - blackhole mine",
+				"Assaulter\nQ - missiles\nE - teleport\nSPACE - bullet time",
+				"Fighter\nunfinished"
+		};
+
 		//load
-		player=create_player();
+		if(player_ship==0) {
+			player=create_player_bastion();
+		}
+		else if(player_ship==1) {
+			player=create_player_engineer();
+		}
+		else if(player_ship==2) {
+			player=create_player_assaulter();
+		}
+		else if(player_ship==3) {
+			player=create_player_fighter();
+		}
+
+		help_text_node.text.setString(help_texts[player_ship]);
+
+
 		entity_add(player);
 
+		/*
 		for(int i=0;i<100;i++) {
 			Entity* enemy;
 
@@ -1249,6 +1477,7 @@ public:
 			enemy->pos=sf::Vector2f(Utils::rand_vec(-4000,4000));
 			entity_add(enemy);
 		}
+		*/
 
 		controls=Controls();
 	}
@@ -1291,11 +1520,23 @@ public:
 		e->pos=pos;
 	}
 
+	CompShield* entity_add_shield(Entity* e) {
+		CompShield* shield=(CompShield*)entities.component_add(e,Component::TYPE_SHIELD);
+
+		const char* names[]={"inner level.png","mid level.png","outer level.png"};
+		for(int i=0;i<3;i++) {
+			Node::Ptr n(new Node());
+			n->texture=Loader::get_texture((std::string)"player ships/Hammership/"+names[i]);
+			n->origin=n->texture.get_size()*0.5f;
+			shield->node.add_child(n.get());
+			shield->layers.push_back(std::move(n));
+		}
+		shield->anim=Utils::rand_range(0,100);
+		return shield;
+	}
+
 	Entity* create_player() {
 		Entity* player=entities.entity_create();
-		Texture tex=Loader::get_texture("player ships/Assaulter/assaulter.png");
-		player->display.add_texture_center(tex);
-		player->shape.add_quad_center(tex.get_size());
 
 		player->shape.collision_group=CompShape::COLLISION_GROUP_PLAYER;
 		player->shape.collision_mask=(CompShape::COLLISION_GROUP_ENEMY|
@@ -1305,6 +1546,22 @@ public:
 
 		entities.attribute_add(player,Entity::ATTRIBUTE_PLAYER_CONTROL);
 		entities.attribute_add(player,Entity::ATTRIBUTE_FRIENDLY);
+
+		player->player_side=true;
+		CompShowDamage* c_show_damage=(CompShowDamage*)entities.component_add(player,Component::TYPE_SHOW_DAMAGE);
+		c_show_damage->damage_type=CompShowDamage::DAMAGE_TYPE_SCREEN_EFFECT;
+		player->health.reset(100);
+		entity_show_on_minimap(player,Color(1,1,1,1));
+
+		return player;
+	}
+
+	Entity* create_player_assaulter() {
+		Entity* player=create_player();
+
+		Texture tex=Loader::get_texture("player ships/Assaulter/assaulter.png");
+		player->display.add_texture_center(tex);
+		player->shape.add_quad_center(tex.get_size());
 
 		CompEngine* e=(CompEngine*)entities.component_add(player,Component::TYPE_ENGINE);
 		e->set(graphic_engine,sf::Vector2f(0,tex.get_size().y*0.5));
@@ -1342,17 +1599,131 @@ public:
 		g->angle=0;
 		g->group=2;
 
-		player->player_side=true;
+		return player;
+	}
 
-		CompShowDamage* c_show_damage=(CompShowDamage*)entities.component_add(player,Component::TYPE_SHOW_DAMAGE);
-		c_show_damage->damage_type=CompShowDamage::DAMAGE_TYPE_SCREEN_EFFECT;
+	Entity* create_player_bastion() {
+		Entity* player=create_player();
 
-		player->health.reset(100);
+		Texture tex_hammer=Loader::get_texture("player ships/Hammership/hammer.png");
+		Node* hammer_node=player->display.add_texture(tex_hammer,sf::Vector2f(0,0));
+		hammer_node->pos=sf::Vector2f(0,0);
+		hammer_node->origin=sf::Vector2f(tex_hammer.get_size().x*0.5f,-18);
 
-		entity_show_on_minimap(player,Color(1,1,1,1));
+		Texture tex=Loader::get_texture("player ships/Hammership/ship1.png");
+		player->display.add_texture_center(tex);
+		player->shape.add_quad_center(tex.get_size());
+
+		//shotguns
+		for(int i=0;i<2;i++) {
+			CompGun* g=(CompGun*)entities.component_add(player,Component::TYPE_GUN);
+			g->texture=Loader::get_texture("player ships/Hammership/projectile.png");
+			g->pos.x=0;
+			g->pos.y=0;
+			g->bullet_speed=800;
+			g->fire_timeout=0.6;
+			g->angle=90+i*180;
+			g->angle_spread=180;
+			g->bullet_count=15;
+			g->group=1-i;
+		}
+
+		for(int i=0;i<2;i++) {
+			CompEngine* e=(CompEngine*)entities.component_add(player,Component::TYPE_ENGINE);
+			e->set(graphic_engine,sf::Vector2f(-tex.get_size().x*0.5+23+36*i,tex.get_size().y*0.5));
+		}
+
+		//grav force
+		CompGravityForce* grav=(CompGravityForce*)entities.component_add(player,Component::TYPE_GRAVITY_FORCE);
+		grav->enabled=false;
+		grav->radius=300;
+		grav->power_center=-100;
+		grav->power_edge=400;
+
+		//hammer
+		CompGravityForce* hammer_grav=(CompGravityForce*)entities.component_add(player,Component::TYPE_GRAVITY_FORCE);
+		hammer_grav->enabled=false;
+		hammer_grav->radius=400;
+		hammer_grav->power_center=-1000;
+		hammer_grav->power_edge=-500;
+
+		CompHammer* hammer=(CompHammer*)entities.component_add(player,Component::TYPE_HAMMER);
+		hammer->my_gravity_force=hammer_grav;
+		hammer->hammer_node=hammer_node;
+
 
 		return player;
 	}
+	Entity* create_player_fighter() {
+		Entity* player=create_player();
+
+		Texture tex=Loader::get_texture("player ships/Slasher/slasher.png");
+
+		player->display.add_texture(Loader::get_texture("player ships/Slasher/blade1.png"),-tex.get_size()*0.5f+sf::Vector2f(5,-26));
+		player->display.add_texture(Loader::get_texture("player ships/Slasher/blade2.png"),-tex.get_size()*0.5f+sf::Vector2f(68-5-11,-26));
+
+		player->display.add_texture_center(tex);
+		player->shape.add_quad_center(tex.get_size());
+
+		for(int i=0;i<2;i++) {
+			CompEngine* e=(CompEngine*)entities.component_add(player,Component::TYPE_ENGINE);
+			e->set(graphic_engine,sf::Vector2f(-tex.get_size().x*0.5+16+i*37,tex.get_size().y*0.5));
+		}
+
+		//machine guns
+		for(int i=0;i<2;i++) {
+			CompGun* g=(CompGun*)entities.component_add(player,Component::TYPE_GUN);
+			g->texture=Loader::get_texture("player ships/Assaulter/projectile1.png");
+			g->pos.x=-29+i*29*2;
+			g->pos.y=-19;
+			g->bullet_speed=400;
+			g->fire_timeout=0.06;
+			g->angle=0;
+			g->group=1;
+		}
+		//shotguns
+		for(int i=0;i<2;i++) {
+			CompGun* g=(CompGun*)entities.component_add(player,Component::TYPE_GUN);
+			g->texture=Loader::get_texture("player ships/Assaulter/projectile2.png");
+			g->pos.x=-29+i*29*2;
+			g->pos.y=-19;
+			g->bullet_speed=400;
+			g->fire_timeout=0.6;
+			g->angle=0;
+			g->angle_spread=60;
+			g->bullet_count=5;
+		}
+		//laser
+		CompGun* g=(CompGun*)entities.component_add(player,Component::TYPE_GUN);
+		g->texture=Loader::get_texture("player ships/Assaulter/railgun.png");
+		g->pos.x=0;
+		g->pos.y=-19;
+		g->bullet_speed=800;
+		g->fire_timeout=0.02;
+		g->angle=0;
+		g->group=2;
+
+		return player;
+	}
+
+	Entity* create_player_engineer() {
+		Entity* player=create_player();
+		Texture tex=Loader::get_texture("player ships/Engineer/engineer.png");
+		player->display.add_texture_center(tex);
+		player->shape.add_quad_center(tex.get_size());
+
+		Texture tex_hook=Loader::get_texture("player ships/Engineer/hook.png");
+
+		player->display.add_texture(tex_hook,-tex.get_size()*0.5f+sf::Vector2f(1,-15));
+		player->display.add_texture(tex_hook,-tex.get_size()*0.5f+sf::Vector2f(53-19-1,-15));
+
+		CompEngine* e=(CompEngine*)entities.component_add(player,Component::TYPE_ENGINE);
+		e->set(graphic_engine,sf::Vector2f(0,tex.get_size().y*0.5));
+
+		return player;
+	}
+
+
 	Entity* create_bullet(const Texture& tex,bool player_side) {
 		float scale=1.0;
 
@@ -1381,6 +1752,84 @@ public:
 
 		return bullet;
 	}
+	Entity* create_mine() {
+		Entity* e=create_bullet(Loader::get_texture("player ships/Hammership/sticky bomb.png"),true);
+		CompTimeout* t=(CompTimeout*)entities.component_get(e,Component::TYPE_TIMEOUT);
+		t->timeout=20.0f;
+		e->tmp_damage=100.0f;
+		return e;
+	}
+	Entity* create_candy_mine() {
+		Entity* e=create_mine();
+		CompTimeout* t=(CompTimeout*)entities.component_get(e,Component::TYPE_TIMEOUT);
+		t->timeout=2.0f;
+		t->action=CompTimeout::ACTION_BIG_EXPLOSION;
+		e->tmp_damage=200.0f;
+		e->shape.enabled=false;
+
+		entities.attribute_add(e,Entity::ATTRIBUTE_REMOVE_ON_DEATH);
+		entities.attribute_add(e,Entity::ATTRIBUTE_ATTRACT);
+
+		return e;
+	}
+	Entity* create_follower() {
+
+		float scale=1.0;
+
+		Entity* k=entities.entity_create();
+
+		Texture tex=Loader::get_texture("player ships/Engineer/helper1.png");
+		k->display.add_texture_center(tex,scale);
+
+		k->shape.add_quad_center(tex.get_size()*scale);
+		entities.attribute_add(k,Entity::ATTRIBUTE_REMOVE_ON_DEATH);
+		entities.attribute_add(k,Entity::ATTRIBUTE_FRIENDLY);
+
+		k->shape.collision_group=CompShape::COLLISION_GROUP_PLAYER;
+		k->shape.collision_mask=(CompShape::COLLISION_GROUP_ENEMY|
+				CompShape::COLLISION_GROUP_ENEMY_BULLET/*|
+				CompShape::COLLISION_GROUP_TERRAIN*/);
+
+		k->shape.bounce=true;
+
+		k->player_side=true;
+
+
+		CompShowDamage* c_show_damage=(CompShowDamage*)entities.component_add(k,Component::TYPE_SHOW_DAMAGE);
+		c_show_damage->damage_type=CompShowDamage::DAMAGE_TYPE_BLINK;
+
+		entity_show_on_minimap(k,Color(0,0,1,1));
+
+		k->health.reset(100);
+
+		CompAI* ai=(CompAI*)entities.component_add(k,Component::TYPE_AI);
+		ai->ai_type=CompAI::AI_FOLLOWER;
+
+		CompGun* gun=(CompGun*)entities.component_add(k,Component::TYPE_GUN);
+		gun->texture=Loader::get_texture("player ships/Engineer/helper1proj.png");
+		gun->bullet_speed=300;
+		gun->fire_timeout=0.3;
+
+		float aim_dist=200;
+		/*
+		if(dir==0) {
+			ai->target_offset=sf::Vector2f(0,aim_dist);
+			gun->angle=0;
+		}
+		else if(dir==1) {
+			ai->target_offset=sf::Vector2f(0,-aim_dist);
+			gun->angle=180;
+		}
+		else if(dir==2) {
+			float g_dir=Utils::rand_sign();
+			ai->target_offset=sf::Vector2f(aim_dist*g_dir,0);
+			gun->angle=(g_dir>0 ? 270 : 90);
+		}
+		*/
+
+		return k;
+	}
+
 	Entity* create_missile(const Graphic& g,Entity* target,bool player_side) {
 		float scale=2.0;
 
@@ -1477,7 +1926,57 @@ public:
 		return k;
 	}
 
-	void add_decal(const Graphic& grap,sf::Vector2f pos) {
+	void add_swarm(int count,int pattern) {
+		SwarmManager* swarm=new SwarmManager();
+		swarm->pattern=pattern;
+
+		//sf::Vector2f start_pos=player->pos+Utils::vec_for_angle_deg(Utils::rand_range(270,360+90),1000);
+		sf::Vector2f start_pos=player->pos+Utils::vec_for_angle_deg(Utils::rand_range(0,180)+180,1000);
+
+		for(int i=0;i<count;i++) {
+			Entity* e=create_enemy_shooter(Utils::vector_rand(graphic_enemy_shooter_down),1);
+			Component* ai=entities.component_get(e,Component::TYPE_AI);
+			if(ai) {
+				entities.component_remove(ai);
+			}
+			swarm->entities.push_back(entities.entity_ref_create(e));
+			e->pos=start_pos;
+			entity_add(e);
+		}
+		for(int i=0;i<count;i++) {
+			sf::Vector2f p=swarm->get_entity_pos(i).pos;
+			//entity_teleport(swarm->entities[i]->entity,player->pos+p);
+		}
+
+		swarms.push_back(swarm);
+	}
+
+	void add_big_explosion(sf::Vector2f pos) {
+		float radius=150.0f;
+		float radius2=radius*radius;
+
+
+		for(int i=0;i<120;i++) {
+			add_decal(Utils::vector_rand(graphic_explosion),
+					pos+Utils::vec_for_angle_deg(Utils::rand_range(0,360),Utils::rand_range(0,radius)));
+		}
+
+		sf::Vector2f d_size=sf::Vector2f(1,1)*radius*1.5f;
+		sf::Vector2f d_pos=pos-d_size*0.5f;
+		terrain.damage_area(sf::FloatRect(d_pos,d_size),100);
+
+		for(Entity * e : entities.entities) {
+			if(e->shape.enabled && !e->player_side) {
+				float dist=Utils::vec_length_fast(e->pos-pos);
+
+				if(dist<radius2) {
+					entity_damage(e,Utils::lerp(500,0,dist/radius2));
+				}
+			}
+		}
+
+	}
+	Entity* add_decal(const Graphic& grap,sf::Vector2f pos) {
 		Entity* e=entities.entity_create();
 		e->display.add_graphic_center(grap);
 
@@ -1489,16 +1988,22 @@ public:
 		}
 		e->pos=pos;
 		entity_add(e);
+		return e;
 	}
-	void add_decal(const std::vector<Graphic>& grap,sf::Vector2f pos) {
+	Entity* add_decal(const std::vector<Graphic>& grap,sf::Vector2f pos) {
 		if(grap.size()==0) {
-			return;
+			return nullptr;
 		}
-		add_decal(Utils::vector_rand(grap),pos);
+		return add_decal(Utils::vector_rand(grap),pos);
 	}
 
 	//"events"
 	void entity_damage(Entity* e,float dmg) {
+
+		if(entities.component_get(e,Component::TYPE_SHIELD)) {
+			return;
+		}
+
 		e->health.health-=dmg;
 
 		CompShowDamage* c_show_damage=(CompShowDamage*)entities.component_get(e,Component::TYPE_SHOW_DAMAGE);
@@ -1519,7 +2024,13 @@ public:
 			e->health.alive=false;
 
 			if(entities.attribute_has(e,Entity::ATTRIBUTE_REMOVE_ON_DEATH)) {
-				add_decal(graphic_explosion,e->pos);
+
+				if(e->tmp_damage>90.0) {
+					add_big_explosion(e->pos);
+				}
+				else {
+					add_decal(graphic_explosion,e->pos);
+				}
 				entity_remove(e);
 			}
 		}
@@ -1565,6 +2076,34 @@ public:
 		return r;
 	}
 
+	void wave_manager_frame(float dt) {
+		if(!swarms.empty()) {
+			return;
+		}
+
+		wave_manager.timeout-=dt;
+		if(wave_manager.timeout>0) {
+			return;
+		}
+
+		wave_manager.timeout=2.0;
+
+		add_swarm(Utils::rand_range_i(5,12),Utils::rand_range_i(0,1));
+
+
+		for(int i=0;i<8;i++) {
+			Entity* enemy;
+
+			if(i%5==0) enemy=create_enemy_shooter(Utils::vector_rand(graphic_enemy_shooter_up),0);
+			else if(i%5==1) enemy=create_enemy_shooter(Utils::vector_rand(graphic_enemy_shooter_down),1);
+			else if(i%5==2) enemy=create_enemy_shooter(Utils::vector_rand(graphic_enemy_shooter_side),2);
+			else enemy=create_enemy_suicide(Utils::vector_rand(graphic_enemy_suicide));
+
+			enemy->pos=sf::Vector2f(Utils::rand_vec(-4000,4000));
+			entity_add(enemy);
+		}
+	}
+
 	void event_frame(float dt) override {
 		if(!node.visible || !player) return;
 
@@ -1603,7 +2142,12 @@ public:
 
 			e->vel=vel;
 
-			float angle=Utils::rad_to_deg(Utils::vec_angle(size*0.5f-pointer_pos));
+			float angle=270;
+
+			if(player_ship!=0) {
+				angle=Utils::rad_to_deg(Utils::vec_angle(size*0.5f-pointer_pos));
+			}
+
 			e->angle=angle;
 
 		}
@@ -1628,7 +2172,7 @@ public:
 						sf::FloatRect r(q2.p1,q_size);
 						sf::Vector2f col_normal;
 						if(terrain.check_collision(r,col_normal)) {
-							terrain.damage_area(r);
+							terrain.damage_area(r,20);
 							entity_damage(e,10);
 							CompBounce* c_bounce=(CompBounce*)entities.component_add(e,Component::TYPE_BOUNCE);
 							c_bounce->timer.reset(0.3);
@@ -1653,8 +2197,8 @@ public:
 							cq2.translate(ce->pos);
 
 							if(q2.intersects(cq2)) {
-								entity_damage(e,10);
-								entity_damage(ce,10);
+								entity_damage(e,ce->tmp_damage);
+								entity_damage(ce,e->tmp_damage);
 
 								if(e->shape.bounce && ce->shape.bounce) {
 									sf::Vector2f b_vel=Utils::vec_normalize(e->pos-ce->pos)*100.0f;
@@ -1685,20 +2229,109 @@ public:
 				comp->node.visible=false;
 			}
 		}
+
+		std::vector<sf::Vector2f> timeout_explosions;
 		for(Component* ccomp : entities.component_list(Component::TYPE_TIMEOUT)) {
 			CompTimeout* comp=(CompTimeout*)ccomp;
+
 			comp->timeout-=dt;
 			if(comp->timeout<=0) {
 				if(comp->action==CompTimeout::ACTION_REMOVE_ENTITY) {
 					entity_remove(comp->entity);
 				}
+				else if(comp->action==CompTimeout::ACTION_BIG_EXPLOSION) {
+					timeout_explosions.push_back(comp->entity->pos);
+					entity_remove(comp->entity);
+				}
 				entities.component_remove(comp);
 			}
 		}
+		//XXX: temp. adding components (to other entities) while traversing component_list crashes
+		for(int i=0;i<timeout_explosions.size();i++) {
+			add_big_explosion(timeout_explosions[i]);
+		}
+
+
+		const std::vector<Entity*> attractors=entities.attribute_list_entities(Entity::ATTRIBUTE_ATTRACT);
 		for(Component* ccomp : entities.component_list(Component::TYPE_AI)) {
 			CompAI* comp=(CompAI*)ccomp;
 
-			if(comp->ai_type==CompAI::AI_MELEE || comp->ai_type==CompAI::AI_SHOOTER) {
+
+			float min_dist=0;
+			Entity* closest_attractor=nullptr;
+
+			for(int i=0;i<attractors.size();i++) {
+				Entity* attractor=attractors[i];
+
+				if(attractor->player_side!=comp->entity->player_side) {
+					 float dist=Utils::vec_length_fast(attractor->pos-comp->entity->pos);
+					 if(!closest_attractor || dist<min_dist) {
+						 min_dist=dist;
+						 closest_attractor=attractor;
+					 }
+				}
+			}
+
+			if(closest_attractor) {
+
+				float speed=150.0f;
+				float acc=200.0f;
+				sf::Vector2f diff=closest_attractor->pos-comp->entity->pos;
+				float dist=Utils::dist(diff);
+				diff+=comp->rand_offset*dist*0.3f;
+				sf::Vector2f vel=diff/dist*speed;
+
+				comp->entity->vel.x=Utils::num_move_towards(comp->entity->vel.x,vel.x,dt*acc);
+				comp->entity->vel.y=Utils::num_move_towards(comp->entity->vel.y,vel.y,dt*acc);
+
+				continue;
+			}
+
+
+			if(comp->ai_type==CompAI::AI_FOLLOWER) {
+				Entity* e=comp->entity;
+				float player_dist=Utils::dist(player->pos-e->pos);
+				float wanted_dist=35;
+
+				if(player_dist>wanted_dist) {
+					e->pos=player->pos+Utils::vec_normalize(e->pos-player->pos)*wanted_dist;
+				}
+
+				const std::vector<Entity*>& targets=entities.attribute_list_entities(Entity::ATTRIBUTE_ENEMY);
+				std::vector<Entity*> targeted;
+				for(Entity * t : targets) {
+					if(Utils::vec_length_fast(e->pos-t->pos)<300*300) {
+						targeted.push_back(t);
+					}
+				}
+
+				Entity* target=nullptr;
+				if(targeted.size()>0) {
+					target=targeted[0];
+					float min_dist=Utils::vec_length_fast(targeted[0]->pos-e->pos);
+					for(int i=1;i<targeted.size();i++) {
+						float dist=Utils::vec_length_fast(targeted[i]->pos-e->pos);
+						if(dist<min_dist) {
+							min_dist=dist;
+							target=targeted[i];
+						}
+					}
+				}
+
+				if(target) {
+					e->fire_gun[0]=true;
+					const std::vector<Component*> guns=entities.component_list(Component::TYPE_GUN);
+
+					for(int i=0;i<guns.size();i++) {
+						CompGun* g=(CompGun*)guns[i];
+						g->angle=Utils::rad_to_deg(Utils::vec_angle(target->pos-e->pos))-90;
+					}
+				}
+				else {
+					e->fire_gun[0]=false;
+				}
+			}
+			else if(comp->ai_type==CompAI::AI_MELEE || comp->ai_type==CompAI::AI_SHOOTER) {
 				Entity* target=player;
 
 				sf::Vector2f aim_pos=target->pos+target->vel*0.5f;
@@ -1737,6 +2370,102 @@ public:
 			}
 
 		}
+
+
+
+		for(int i=0;i<swarms.size();i++) {
+			SwarmManager* swarm=swarms[i];
+
+			swarm->anim+=dt;
+
+			int alive_count=0;
+			for(int ei=0;ei<swarm->entities.size();ei++) {
+				Entity* e=swarm->entities[ei]->entity;
+				if(!e) {
+					continue;
+				}
+				alive_count++;
+
+
+
+
+				float min_dist=0;
+				Entity* closest_attractor=nullptr;
+
+				for(int i=0;i<attractors.size();i++) {
+					Entity* attractor=attractors[i];
+
+					if(attractor->player_side!=e->player_side) {
+						 float dist=Utils::vec_length_fast(attractor->pos-e->pos);
+						 if(!closest_attractor || dist<min_dist) {
+							 min_dist=dist;
+							 closest_attractor=attractor;
+						 }
+					}
+				}
+
+				if(closest_attractor) {
+
+					float speed=150.0f;
+					float acc=200.0f;
+					sf::Vector2f diff=closest_attractor->pos-e->pos;
+					float dist=Utils::dist(diff);
+					sf::Vector2f vel=diff/dist*speed;
+
+					e->vel.x=Utils::num_move_towards(e->vel.x,vel.x,dt*acc);
+					e->vel.y=Utils::num_move_towards(e->vel.y,vel.y,dt*acc);
+
+					continue;
+				}
+
+
+
+
+
+				SwarmManagerCtrl ctrl=swarm->get_entity_pos(ei);
+				ctrl.pos+=player->pos;
+
+				if(false) {
+					if(Utils::vec_length_fast(e->pos-player->pos)<100.0f*100.0f) {
+						ctrl.pos=Utils::vec_normalize(e->pos-player->pos)*100.0f;
+					}
+				}
+
+				//movement
+				/*
+				float speed=1500.0f;
+				float acc=2000.0f;
+				sf::Vector2f diff=ctrl.pos-e->pos;
+				float dist=Utils::dist(diff);
+				sf::Vector2f vel=diff/dist*speed;
+
+				e->vel.x=Utils::num_move_towards(e->vel.x,vel.x,dt*acc);
+				e->vel.y=Utils::num_move_towards(e->vel.y,vel.y,dt*acc);
+				*/
+
+				//e->vel=Utils::vec_normalize(ctrl.pos-e->pos)*150.0f;
+
+				e->vel=(ctrl.pos-e->pos)*10.0f;
+
+				e->vel=Utils::vec_cap_length(e->vel,0,400.0f);
+
+				e->fire_gun[0]=ctrl.fire;
+			}
+
+			if(alive_count==0) {
+				for(int ei=0;ei<swarm->entities.size();ei++) {
+					entities.entity_ref_delete(swarm->entities[ei]);
+				}
+				delete(swarm);
+				swarms.erase(swarms.begin()+i);
+				i--;
+			}
+
+		}
+
+		wave_manager_frame(dt);
+
+
 		for(Component* ccomp : entities.component_list(Component::TYPE_GUN)) {
 			CompGun* g=(CompGun*)ccomp;
 
@@ -1815,6 +2544,7 @@ public:
 			}
 			else if(comp->damage_type==CompShowDamage::DAMAGE_TYPE_SCREEN_EFFECT) {
 				shader_damage.set_param("amount",a*0.01);
+				cam_shake.start();
 			}
 		}
 		for(Component* ccomp : entities.component_list(Component::TYPE_BOUNCE)) {
@@ -1843,6 +2573,61 @@ public:
 			comp->node.pos=comp->entity->pos;
 		}
 
+		for(Component* ccomp : entities.component_list(Component::TYPE_GRAVITY_FORCE)) {
+			CompGravityForce* comp=(CompGravityForce*)ccomp;
+
+			if(!comp->enabled) {
+				continue;
+			}
+
+			float r2=comp->radius*comp->radius;
+
+			Graphic decal_graphic(Loader::get_texture("general assets/gravity_force.png"));
+			for(int i=0;i<1;i++) {
+				float angle=Utils::rand_range(0,360);
+				sf::Vector2f dir=Utils::vec_for_angle_deg(angle,1);
+				float dist=Utils::rand_range(0,comp->radius);
+				Entity* e=add_decal(decal_graphic,comp->entity->pos+dir*dist);
+				e->angle=angle;
+				e->vel=-dir*Utils::lerp(comp->power_center,comp->power_edge,dist/comp->radius);
+			}
+
+			for(Entity* e : entities.attribute_list_entities(Entity::ATTRIBUTE_ENEMY)) {
+				float dist=Utils::vec_length_fast(e->pos-comp->entity->pos);
+				if(dist<r2) {
+					e->vel=Utils::vec_normalize(comp->entity->pos-e->pos)*
+							Utils::lerp(comp->power_center,comp->power_edge,dist/r2);
+				}
+			}
+		}
+		for(Component* ccomp : entities.component_list(Component::TYPE_SHIELD)) {
+			CompShield* comp=(CompShield*)ccomp;
+			comp->anim+=dt;
+			float speeds[]={1,-0.5,0.5};
+			for(int i=0;i<comp->layers.size();i++) {
+				comp->layers[i]->rotation=comp->anim*speeds[i]*300.0f;
+			}
+		}
+		for(Component* ccomp : entities.component_list(Component::TYPE_HAMMER)) {
+			CompHammer* comp=(CompHammer*)ccomp;
+			if(!comp->enabled) {
+				continue;
+			}
+
+			float duration=0.5;
+
+			comp->anim+=dt/duration;
+
+			if(comp->anim>=1.0f) {
+				comp->anim=0.0f;
+				comp->enabled=false;
+				comp->my_gravity_force->enabled=false;
+			}
+
+			comp->hammer_node->rotation=Utils::lerp(0,360,comp->anim);
+
+		}
+
 
 		entities.update();
 		//xxx
@@ -1853,8 +2638,9 @@ public:
 		}
 
 		//camera
+		cam_shake.frame(dt);
 
-		sf::Vector2f camera_pos=player->pos; //-player->vel*0.1f;
+		sf::Vector2f camera_pos=player->pos+cam_shake.offset; //-player->vel*0.1f;
 
 		//camera_pos.x=std::floor(camera_pos.x);
 		//camera_pos.y=std::floor(camera_pos.y);
@@ -1884,10 +2670,15 @@ public:
 			shader_damage.set_param("time",game_time*0.4);
 		}
 
+		for(int i=0;i<10;i++) {
+			if(player->tmp_timeout[i]>=0.0) {
+				player->tmp_timeout[i]-=dt;
+			}
+		}
 
 		game_time+=dt;
 	}
-	bool event_input(const MenuEvent& event) {
+	bool event_input(const MenuEvent& event) override {
 
 		if(event.event.type==sf::Event::KeyPressed || event.event.type==sf::Event::KeyReleased) {
 			sf::Keyboard::Key c=event.event.key.code;
@@ -1916,9 +2707,42 @@ public:
 				controls.move_down=pressed;
 				if(pressed) controls.move_up=false;
 			}
+
+			else if(c==sf::Keyboard::E) {
+				if(player_ship==0) {
+					CompGravityForce* g=(CompGravityForce*)entities.component_get(player,Component::TYPE_GRAVITY_FORCE);
+					if(g) {
+						g->enabled=pressed;
+					}
+				}
+			}
+			else if(c==sf::Keyboard::Q) {
+				if(player_ship==0) {
+					if(pressed) {
+						if(entities.component_get(player,Component::TYPE_SHIELD)==nullptr) {
+							entity_add_shield(player);
+						}
+					}
+					else {
+						Component* shield=entities.component_get(player,Component::TYPE_SHIELD);
+						if(shield) {
+							entities.component_remove(shield);
+						}
+					}
+				}
+			}
+
 			//other
 			else if(c==sf::Keyboard::Space) {
-				time_scale= (pressed ? 0.3 : 1.0);
+				if(player_ship==0) {
+
+				}
+				else if(player_ship==1) {
+
+				}
+				else {
+					time_scale= (pressed ? 0.3 : 1.0);
+				}
 			}
 		}
 
@@ -1931,10 +2755,67 @@ public:
 				return true;
 			}
 			else if(c==sf::Keyboard::Q) {	//missiles
-				launch_missiles(3,player->pos,player->player_side);
+
+				if(player_ship==1) {
+					if(player->tmp_timeout[0]<=0.0) {
+						player->tmp_timeout[0]=0.5;
+						Entity* m=create_mine();
+						m->pos=player->pos;
+						entity_add(m);
+					}
+				}
+				else if(player_ship==2) {
+					if(player->tmp_timeout[0]<=0.0) {
+						player->tmp_timeout[0]=0.5;
+						launch_missiles(3,player->pos,player->player_side);
+					}
+				}
 			}
 			else if(c==sf::Keyboard::E) {	//teleport
-				entity_teleport(player,screen_to_game_pos(pointer_pos));
+				if(player_ship==1) {
+					Entity* m=create_follower();
+					m->pos=player->pos;
+					entity_add(m);
+				}
+				else if(player_ship==2) {
+					entity_teleport(player,screen_to_game_pos(pointer_pos));
+				}
+			}
+			else if(c==sf::Keyboard::R) {
+				if(player_ship==0) {
+					Entity* m=create_candy_mine();
+					m->pos=player->pos;
+					entity_add(m);
+				}
+			}
+			else if(c==sf::Keyboard::Space) {
+
+				if(player_ship==0) {
+					CompHammer* hammer=(CompHammer*)entities.component_get(player,Component::TYPE_HAMMER);
+					if(hammer && !hammer->enabled) {
+						hammer->anim=0;
+						hammer->enabled=true;
+						hammer->my_gravity_force->enabled=true;
+					}
+				}
+				else if(player_ship==1) {
+					if(player->tmp_timeout[0]<=0.0) {
+						player->tmp_timeout[0]=0.5;
+						Entity* m=create_mine();
+						m->pos=player->pos;
+						CompGravityForce* grav=(CompGravityForce*)entities.component_add(m,Component::TYPE_GRAVITY_FORCE);
+						grav->enabled=true;
+						grav->radius=400;
+						grav->power_center=200;
+						grav->power_edge=200;
+
+						CompTimeout* t=(CompTimeout*)entities.component_get(m,Component::TYPE_TIMEOUT);
+						t->timeout=5.0f;
+						t->action=CompTimeout::ACTION_BIG_EXPLOSION;
+
+						entity_add(m);
+					}
+				}
 			}
 
 			else if(c==sf::Keyboard::Z) {	//zoom mode

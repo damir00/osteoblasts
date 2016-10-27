@@ -232,6 +232,8 @@ TerrainIsland::TerrainIsland(Quad _box) {
 
 	version_id=0;
 
+	terrain_health=5;
+
 	if(!loader) {
 		loader=new TerrainLoader();
 	}
@@ -407,6 +409,8 @@ void TerrainIsland::init() {
 			}
 			else {
 				map[i].active=true;
+				map[i].health=terrain_health;
+
 				//float d=cell_size/2;
 				//map[i].pos.x=x*cell_size+Utils::rand_range(-d,d);
 				//map[i].pos.y=y*cell_size+Utils::rand_range(-d,d);
@@ -485,7 +489,7 @@ void TerrainIsland::unload() {
 }
 
 
-void TerrainIsland::damage_area(const sf::FloatRect& rect) {
+void TerrainIsland::damage_area(const sf::FloatRect& rect,float damage) {
 	if(!map) return;
 
 	//float mult=1.0f/(cell_size*3.0);
@@ -497,13 +501,19 @@ void TerrainIsland::damage_area(const sf::FloatRect& rect) {
 
 	//for(int i=0;i<w*h;i++) map[i].active=false;
 
+	bool need_update=false;
+
 	load_mutex.lock();
 
 	for(int x=x1;x<x2;x++) {
 		for(int y=y1;y<y2;y++) {
 			int map_i=y*w+x;
 			if(!map[map_i].active) continue;
-			map[map_i].active=false;
+			map[map_i].health-=damage;
+			if(map[map_i].health<=0) {
+				map[map_i].active=false;
+				need_update=true;
+			}
 		}
 	}
 
@@ -511,7 +521,7 @@ void TerrainIsland::damage_area(const sf::FloatRect& rect) {
 
 	version_id++;
 
-	if(!loaded) {
+	if(!loaded || !need_update) {
 		return;
 	}
 
@@ -809,7 +819,7 @@ void Terrain::update_visual(const sf::FloatRect& _rect) {
 	}
 }
 
-void Terrain::damage_area(const sf::FloatRect& rect) {
+void Terrain::damage_area(const sf::FloatRect& rect,float damage) {
 	sf::Vector2f p1=sf::Vector2f(rect.left,rect.top);
 	sf::Vector2f p2=p1+sf::Vector2f(rect.width,rect.height);
 	const SimpleList<TerrainIsland*>& list=list_islands(Quad(p1,p2));
@@ -820,7 +830,7 @@ void Terrain::damage_area(const sf::FloatRect& rect) {
 		sf::FloatRect r1=rect;
 		r1.left-=island->box.p1.x+island->offset.x;
 		r1.top-=island->box.p1.y+island->offset.y;
-		island->damage_area(r1);
+		island->damage_area(r1,damage);
 	}
 }
 bool Terrain::check_collision(const sf::FloatRect& rect) {

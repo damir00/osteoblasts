@@ -7,9 +7,28 @@ RTTs
 terrain & ship bounce
 damage flames
 minimap
+terrain health
 
-weapons cooloff
+cam shake
+ship select menu
+mine
+candy mine
+gravity force
+shield
+hammer
+blackhole bomb
+player ships
+enemies swarm patterns
+weapon help text
+
+level select menu
+
+enemies warp in
+
+player health
+
 laser
+weapons cooloff
 
 remove CompDisplay/Shape/Health from Entity
 

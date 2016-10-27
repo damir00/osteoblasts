@@ -11,6 +11,6 @@ void main() {
 	vec2 tex_g=texture2D(texture,gl_TexCoord[0].xy).ga;
 	vec2 tex_b=texture2D(texture,gl_TexCoord[0].xy-offset).ba;
 
-	gl_FragColor=gl_Color*vec4(tex_r.x*tex_r.y,tex_g.x*tex_g.y,tex_b.x*tex_b.y, (tex_r.y+tex_g.y+tex_b.y)/1.0f );
+	gl_FragColor=gl_Color*vec4(tex_r.x*tex_r.y,tex_g.x*tex_g.y,tex_b.x*tex_b.y, (tex_r.y+tex_g.y+tex_b.y)/1.0 );
 }
 

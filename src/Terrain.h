@@ -17,6 +17,12 @@ public:
 	//sf::Vector2f pos;
 	//float size;
 	bool active;
+	float health;
+
+	TerrainIslandPoint() {
+		active=false;
+		health=0;
+	}
 };
 
 /*
@@ -341,6 +347,7 @@ class TerrainIsland : public Node {
 
 	sf::Vector2i noise_offset;
 
+	float terrain_health;
 
 	float image_get_light(const ImageData& data,int px,int py,int radius);
 
@@ -367,7 +374,7 @@ public:
 	void init();
 	void load();
 	void unload();
-	void damage_area(const sf::FloatRect& rect);
+	void damage_area(const sf::FloatRect& rect,float damage);
 	bool check_collision(const sf::FloatRect& rect);
 	bool check_collision(const sf::FloatRect& rect,sf::Vector2f& normal);
 	bool check_collision(const sf::Vector2f& pos);
@@ -390,7 +397,7 @@ public:
 
 	Terrain();
 	void update_visual(const sf::FloatRect& rect);
-	void damage_area(const sf::FloatRect& rect);
+	void damage_area(const sf::FloatRect& rect,float damage);
 	bool check_collision(const sf::FloatRect& rect);
 	bool check_collision(const sf::FloatRect& rect,sf::Vector2f& normal);
 	bool check_collision(const sf::Vector2f& vect);

@@ -11,6 +11,111 @@
 #include "Easing.h"
 #include "MenuMain.h"
 
+class MenuMainShipSelect : public Menu {
+
+	MenuSpriteButton::Ptr add_button(const std::string& texture,float x,float y) {
+		MenuSpriteButton::Ptr btn(new MenuSpriteButton());
+		btn->set_texture(Loader::get_texture(texture));
+		btn->node.pos=sf::Vector2f(x,y);
+		add_child(btn.get());
+		return btn;
+	}
+	MenuSpriteButton::Ptr add_ship(const std::string& name) {
+		ships.push_back(add_button("menu/ship_select/"+name+".png",70+ships.size()*210,230));
+		return nullptr;
+	}
+
+public:
+
+	MenuButton::Ptr btn_back;
+	std::vector<MenuSpriteButton::Ptr> ships;
+
+	MenuMainShipSelect() {
+		btn_back=add_button("menu/exit icon.png",907,487);
+
+		add_ship("bastion");
+		add_ship("engineer");
+		add_ship("assaulter");
+		add_ship("fighter");
+	}
+
+};
+class MenuMainLevelSelect : public Menu {
+
+	class MyMenuSpriteButton : public MenuSpriteButton {
+		Node border[4];
+	public:
+		MyMenuSpriteButton() {
+			border[0].type=Node::TYPE_SOLID;
+			border[0].scale=sf::Vector2f(100,4);
+			border[0].color=Color(1,1,1,1);
+
+			node.add_child(&border[0]);
+		}
+	};
+
+	MenuSpriteButton::Ptr add_button(const std::string& texture,float x,float y) {
+		MenuSpriteButton::Ptr btn(new MyMenuSpriteButton());
+		btn->set_texture(Loader::get_texture(texture));
+		btn->node.pos=sf::Vector2f(x,y);
+		add_child(btn.get());
+		return btn;
+	}
+	MenuSpriteButton* add_level(const std::string& name) {
+		int i=levels.size();
+
+		int padding=10;
+		int b_size=100;
+
+		float x=(960-6*b_size+5*padding)*0.5+(i%6)*(b_size+padding);
+		float y=250+(i/6)*(b_size+padding);
+
+		MenuSpriteButton::Ptr btn=add_button("menu/level_select/"+name+".png",x,y);
+
+		btn->resize(sf::Vector2f(100,100));
+
+		MenuSpriteButton* btn_p=btn.get();
+		levels.push_back(std::move(btn));
+		return btn_p;
+	}
+
+public:
+
+	MenuButton::Ptr btn_back;
+	std::vector<MenuSpriteButton::Ptr> levels;
+
+	int action_start;
+	int action_back;
+
+	int selected_level;
+
+	MenuMainLevelSelect() {
+		selected_level=0;
+
+		action_start=0;
+		action_back=0;
+
+		btn_back=add_button("menu/exit icon.png",907,487);
+		btn_back->action=100;
+
+		for(int i=0;i<12;i++) {
+			add_level("walrus");
+		}
+	}
+
+	bool event_message(int msg) override {
+		if(msg==100) {
+			trigger_message(action_back);
+		}
+		if(msg>=0 && msg<=12) {
+			selected_level=msg;
+			trigger_message(action_start);
+		}
+
+		return true;
+	}
+};
+
 class MenuMainSettings : public Menu {
 
 	std::vector<Node::Ptr> items;
@@ -354,6 +459,8 @@ public:
 	MenuMainHeader header;
 	MenuMainFirst page_first;
 	MenuMainSettings page_settings;
+	MenuMainShipSelect page_ship_select;
+	MenuMainLevelSelect page_level_select;
 	Game menu_game;
 
 	std::vector<Menu*> pages;
@@ -426,7 +533,14 @@ public:
 		MSG_BTN_START,
 		MSG_BTN_SETTINGS,
 		MSG_SETTINGS_BACK,
+		MSG_BTN_SHIP_SELECT,
+		MSG_SHIP_SELECT_BACK,
 		MSG_GAME_ESC,
+		MSG_SELECT_SHIP_0,
+		MSG_SELECT_SHIP_1,
+		MSG_SELECT_SHIP_2,
+		MSG_SELECT_SHIP_3,
+		MSG_LEVEL_SELECT_BACK
 	};
 
 	void add_page(Menu* page) {
@@ -448,6 +562,8 @@ public:
 		add_child(&header);
 		add_page(&page_first);
 		add_page(&page_settings);
+		add_page(&page_ship_select);
+		add_page(&page_level_select);
 		add_child(&menu_game);
 
 		menu_game.node.visible=false;
@@ -458,10 +574,19 @@ public:
 		page_current=&page_first;
 
 		page_first.btn_quit->action=MSG_BTN_QUIT;
-		page_first.btn_start->action=MSG_BTN_START;
+		page_first.btn_start->action=MSG_BTN_SHIP_SELECT;
 		page_first.btn_settings->action=MSG_BTN_SETTINGS;
 		page_settings.btn_back->action=MSG_SETTINGS_BACK;
+		page_ship_select.btn_back->action=MSG_SHIP_SELECT_BACK;
 		menu_game.action_esc=MSG_GAME_ESC;
+
+		page_ship_select.ships[0]->action=MSG_SELECT_SHIP_0;
+		page_ship_select.ships[1]->action=MSG_SELECT_SHIP_1;
+		page_ship_select.ships[2]->action=MSG_SELECT_SHIP_2;
+		page_ship_select.ships[3]->action=MSG_SELECT_SHIP_3;
+
+		page_level_select.action_back=MSG_LEVEL_SELECT_BACK;
+		page_level_select.action_start=MSG_BTN_START;
 
 		transitioner.callback=([this](Transitioner::Event e,Menu* m) {
 			bool show=true;
@@ -500,7 +625,6 @@ public:
 		menu_game.resize(size-sf::Vector2f(400,400));
 		*/
 		menu_game.resize(size);
-
 		bg.resize(size);
 	}
 	bool event_message(int msg) override {
@@ -513,6 +637,7 @@ public:
 			return true;
 		case MSG_BTN_START:
 			//menu_game.start_level("assets/game2.json");
+			menu_game.selected_level=page_level_select.selected_level;
 			menu_game.start_level();
 			select_page(&menu_game);
 			return true;
@@ -525,6 +650,29 @@ public:
 			return true;
 		case MSG_SETTINGS_BACK:
 			select_page(&page_first);
+			return true;
+		case MSG_BTN_SHIP_SELECT:
+			select_page(&page_ship_select);
+			return true;
+		case MSG_SHIP_SELECT_BACK:
+			select_page(&page_first);
+			return true;
+
+		case MSG_SELECT_SHIP_0:
+			menu_game.player_ship=0;
+			select_page(&page_level_select);
+			return true;
+		case MSG_SELECT_SHIP_1:
+			menu_game.player_ship=1;
+			select_page(&page_level_select);
+			return true;
+		case MSG_SELECT_SHIP_2:
+			menu_game.player_ship=2;
+			select_page(&page_level_select);
+			return true;
+		case MSG_SELECT_SHIP_3:
+			menu_game.player_ship=3;
+			select_page(&page_level_select);
 			return true;
 		}
 
