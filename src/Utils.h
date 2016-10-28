@@ -9,6 +9,8 @@
 #include <SFML/System.hpp>
 #include <SFML/Graphics.hpp>
 
+#include "Quad.h"
+
 #ifndef M_PI
 	#define M_PI 3.14159265358979323846
 #endif
@@ -152,7 +154,59 @@ public:
 		}
 	}
 
+	static bool line_line_intersection(const sf::Vector2f& a1,const sf::Vector2f& a2,const sf::Vector2f& b1,const sf::Vector2f& b2,
+		float &out_hit_pos) {
 
+		sf::Vector2f s1=a2-a1;
+		sf::Vector2f s2=b2-b1;
+
+		float s=(-s1.y * (a1.x - b1.x) + s1.x * (a1.y - b1.y)) / (-s2.x * s1.y + s1.x * s2.y);
+		float t=( s2.x * (a1.y - b1.y) - s2.y * (a1.x - b1.x)) / (-s2.x * s1.y + s1.x * s2.y);
+
+		if(s >= 0 && s <= 1 && t >= 0 && t <= 1) {
+			out_hit_pos=t;
+			return true;
+		}
+		return false;
+	}
+
+	static bool line_quad_intersection(const sf::Vector2f& p1,const sf::Vector2f& p2,const Quad& quad,
+			float &out_hit_position,bool &out_p1_inside) {
+		if(quad.contains(p1)) {
+			out_hit_position=0;
+			out_p1_inside=true;
+			return true;
+		}
+
+		out_hit_position=1.0;
+		out_p1_inside=false;
+		if(std::max(p1.x,p2.x)<quad.p1.x || std::min(p1.x,p2.x)>quad.p2.x ||
+			std::max(p1.y,p2.y)<quad.p1.y || std::min(p1.y,p2.y)>quad.p2.y) {
+			return false;
+		}
+
+		if(p1.y<p2.y) {	//top
+			if(line_line_intersection(p1,p2,quad.p1,sf::Vector2f(quad.p2.x,quad.p1.y),out_hit_position)) {
+				return true;
+			}
+		}
+		else {	//bottom
+			if(line_line_intersection(p1,p2,sf::Vector2f(quad.p1.x,quad.p2.y),quad.p2,out_hit_position)) {
+				return true;
+			}
+		}
+		if(p1.x<p2.x) {	//left
+			if(line_line_intersection(p1,p2,quad.p1,sf::Vector2f(quad.p1.x,quad.p2.y),out_hit_position)) {
+				return true;
+			}
+		}
+		else {	//right
+			if(line_line_intersection(p1,p2,sf::Vector2f(quad.p2.x,quad.p1.y),sf::Vector2f(quad.p2.x,quad.p2.y),out_hit_position)) {
+				return true;
+			}
+		}
+		return false;
+	}
 };
 
 #endif

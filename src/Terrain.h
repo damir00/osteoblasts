@@ -311,10 +311,28 @@ public:
 			}
 		}
 	}
-
 	SimpleList<T>& query(const Quad& q) {
 		ret_list.clear();
 		query_list(q,ret_list);
+		return ret_list;
+	}
+
+	void query_list(const sf::Vector2f& point,SimpleList<T>& _ret) {
+		if(!quad.contains(point)) {
+			return;
+		}
+		for(const T& item : items) {
+			list_put_unique(_ret,item);
+		}
+		for(int i=0;i<4;i++) {
+			if(children[i]) {
+				children[i]->query_list(point,_ret);
+			}
+		}
+	}
+	SimpleList<T>& query(const sf::Vector2f& point) {
+		ret_list.clear();
+		query_list(point,ret_list);
 		return ret_list;
 	}
 };
@@ -357,6 +375,20 @@ class TerrainIsland : public Node {
 	void update_texture(const sf::IntRect& rect);
 
 public:
+
+	class ChunkAddress {
+	public:
+		TerrainIsland* island;
+		int chunk_index;
+		ChunkAddress() {
+			island=nullptr;
+			chunk_index=-1;
+		}
+		bool valid() const {
+			return (island && chunk_index>=0);
+		}
+	};
+
 	int cell_size;
 	uint32_t version_id;	//will get incremented every time the island is changed (by damage_area)
 	static TerrainLoader* loader;
@@ -375,14 +407,14 @@ public:
 	void load();
 	void unload();
 	void damage_area(const sf::FloatRect& rect,float damage);
+	void damage_chunk(int index,float damage);
 	bool check_collision(const sf::FloatRect& rect);
 	bool check_collision(const sf::FloatRect& rect,sf::Vector2f& normal);
-	bool check_collision(const sf::Vector2f& pos);
+	bool check_collision(const sf::Vector2f& pos,ChunkAddress& chunk);
 
 	void generate_icon_texture(sf::Texture* texture);	//texture needs to be proper size!
 	Texture generate_icon_texture();
 };
-
 
 class Terrain : public Node {
 	std::vector<TerrainIsland*> islands;
@@ -392,7 +424,23 @@ class Terrain : public Node {
 
 	void add_island(TerrainIsland* island);
 
+	TerrainIsland* get_island_at_point(const sf::Vector2f& pos);
+
 public:
+
+	class RayQuery {
+	public:
+
+		bool hit;
+		float hit_position;
+		TerrainIsland::ChunkAddress chunk_address;
+
+		RayQuery() {
+			hit=false;
+			hit_position=1.0f;
+		}
+	};
+
 	sf::Vector2f field_size;
 
 	Terrain();
@@ -400,8 +448,11 @@ public:
 	void damage_area(const sf::FloatRect& rect,float damage);
 	bool check_collision(const sf::FloatRect& rect);
 	bool check_collision(const sf::FloatRect& rect,sf::Vector2f& normal);
-	bool check_collision(const sf::Vector2f& vect);
+	bool check_collision(sf::Vector2f pos,TerrainIsland::ChunkAddress& chunk);
+	RayQuery query_ray(const sf::Vector2f& start,const sf::Vector2f& end);
 	bool island_intersects(TerrainIsland* island,const Quad& quad);
+
+	void damage_ray(const RayQuery& ray,float damage);
 
 	SimpleList<TerrainIsland*>& list_islands(const Quad& _quad);
 };

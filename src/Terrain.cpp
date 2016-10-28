@@ -526,12 +526,37 @@ void TerrainIsland::damage_area(const sf::FloatRect& rect,float damage) {
 	}
 
 	update_area_cell(sf::IntRect(
-				std::max(0,x1-1),
-				std::max(0,y1-1),
-				std::min(w,x2-x1+1),
-				std::min(h,y2-y1+1)
-			));
+			std::max(0,x1-1),
+			std::max(0,y1-1),
+			std::min(w,x2-x1+1),
+			std::min(h,y2-y1+1)
+		));
 }
+void TerrainIsland::damage_chunk(int index,float damage) {
+	if(index<0 || index>=w*h) {
+		return;
+	}
+	if(!map[index].active) {
+		return;
+	}
+
+	map[index].health-=damage;
+	if(map[index].health>0) {
+		return;
+	}
+
+	map[index].active=false;
+	int x=index%w;
+	int y=index/w;
+	update_area_cell(sf::IntRect(
+			std::max(0,x-1),
+			std::max(0,y-1),
+			std::min(w,x+1),
+			std::min(h,y+1)
+		));
+
+}
+
 bool TerrainIsland::check_collision(const sf::FloatRect& rect) {
 	if(!map) return false;
 
@@ -582,18 +607,29 @@ bool TerrainIsland::check_collision(const sf::FloatRect& rect,sf::Vector2f& norm
 	}
 	return collision;
 }
-bool TerrainIsland::check_collision(const sf::Vector2f& pos) {
+bool TerrainIsland::check_collision(const sf::Vector2f& pos,ChunkAddress& chunk) {
 	if(!map) return false;
 
 	//float mult=1.0f/(cell_size*3.0f);
 	float mult=1.0f/(cell_size);
 
-	int x=std::floor(pos.x*mult);
-	int y=std::floor(pos.y*mult);
+	int x=std::floor(pos.x*mult+0.5f);
+	int y=std::floor(pos.y*mult+0.5f);
 
 	if(x<0 || y<0 || x>=w || y>=h) return false;
+	/*
+	if(map[y*w+x].active) {
+		damage_area(sf::FloatRect(pos,sf::Vector2f(10,10)),100);
+	}
+	*/
 
-	return map[y*w+x].active;
+	if(!map[y*w+x].active) {
+		return false;
+	}
+
+	chunk.island=this;
+	chunk.chunk_index=y*w+x;
+	return true;
 }
 Texture TerrainIsland::generate_icon_texture() {
 	if(!map) {
@@ -868,13 +904,33 @@ bool Terrain::check_collision(const sf::FloatRect& rect,sf::Vector2f& normal) {
 	return false;
 }
 
-bool Terrain::check_collision(const sf::Vector2f& pos) {
-	for(TerrainIsland* island : islands) {
-		if(island->check_collision(pos-island->box.p1-island->offset)) {
-			return true;
+TerrainIsland* Terrain::get_island_at_point(const sf::Vector2f& pos) {
+	//pos not wraped!
+
+	SimpleList<TerrainIsland*>& list=octree.query(pos);
+	for(int i=0;i<list.size();i++) {
+		TerrainIsland* island=list[i];
+
+		if(island->box.contains(pos)) {
+			return island;
 		}
 	}
-	return false;
+
+	return nullptr;
+}
+
+bool Terrain::check_collision(sf::Vector2f pos,TerrainIsland::ChunkAddress& chunk) {
+	pos.x=std::fmod(pos.x,field_size.x);
+	pos.y=std::fmod(pos.y,field_size.y);
+	if(pos.x<0) pos.x+=field_size.x;
+	if(pos.y<0) pos.y+=field_size.y;
+
+	TerrainIsland* island=get_island_at_point(pos);
+	if(!island) {
+		return false;
+	}
+
+	return island->check_collision(pos-island->box.p1,chunk);
 }
 bool Terrain::island_intersects(TerrainIsland* island,const Quad& _quad) {
 	//handle wrapping
@@ -914,6 +970,33 @@ bool Terrain::island_intersects(TerrainIsland* island,const Quad& _quad) {
 
 	return false;
 }
+Terrain::RayQuery Terrain::query_ray(const sf::Vector2f& start,const sf::Vector2f& end) {
+	Terrain::RayQuery query;
 
+	float step=5.0f/Utils::vec_length(end-start);
+
+	float pos=0.0f;
+
+	//TODO: lazy
+	while(pos<=1.0f) {
+		sf::Vector2f point=Utils::vec_lerp(start,end,pos);
+
+		if(check_collision(point,query.chunk_address)) {
+			query.hit=true;
+			query.hit_position=pos;
+
+			break;
+		}
+		pos+=step;
+	}
+
+	return query;
+}
+void Terrain::damage_ray(const Terrain::RayQuery& ray,float damage) {
+	if(!ray.chunk_address.valid()) {
+		return;
+	}
+	ray.chunk_address.island->damage_chunk(ray.chunk_address.chunk_index,damage);
+}
 
 

@@ -41,7 +41,7 @@ public:
 
 };
 class MenuMainLevelSelect : public Menu {
-
+	/*
 	class MyMenuSpriteButton : public MenuSpriteButton {
 		Node border[4];
 	public:
@@ -53,9 +53,10 @@ class MenuMainLevelSelect : public Menu {
 			node.add_child(&border[0]);
 		}
 	};
+	*/
 
 	MenuSpriteButton::Ptr add_button(const std::string& texture,float x,float y) {
-		MenuSpriteButton::Ptr btn(new MyMenuSpriteButton());
+		MenuSpriteButton::Ptr btn(new MenuSpriteButton());
 		btn->set_texture(Loader::get_texture(texture));
 		btn->node.pos=sf::Vector2f(x,y);
 		add_child(btn.get());
@@ -73,6 +74,7 @@ class MenuMainLevelSelect : public Menu {
 		MenuSpriteButton::Ptr btn=add_button("menu/level_select/"+name+".png",x,y);
 
 		btn->resize(sf::Vector2f(100,100));
+		btn->action=levels.size();
 
 		MenuSpriteButton* btn_p=btn.get();
 		levels.push_back(std::move(btn));

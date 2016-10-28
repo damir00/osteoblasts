@@ -14,6 +14,20 @@ public:
 		p1=_p1;
 		p2=_p2;
 	}
+	//make sure p1 is top-left
+	void sort_points() {
+		if(p1.x>p2.x) {
+			float tmp=p1.x;
+			p1.x=p2.x;
+			p2.x=tmp;
+		}
+		if(p1.y>p2.y) {
+			float tmp=p1.y;
+			p1.y=p2.y;
+			p2.y=tmp;
+		}
+	}
+
 	bool intersects(const Quad& q) const {
 		return (p1.x<=q.p2.x && p2.x>=q.p1.x && p1.y<=q.p2.y && p2.y>=q.p1.y);
 	}

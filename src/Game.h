@@ -261,11 +261,15 @@ public:
 	Quad bbox;
 	bool enabled;
 
+	float hit_damage;	//how much damage is done to the colliding entity
+
 	CompShape() {
 		collision_group=1;
 		collision_mask=0xff;
 		enabled=true;
 		bounce=false;
+
+		hit_damage=10;
 	}
 
 	void add_quad_center(sf::Vector2f size) {
@@ -322,6 +326,14 @@ public:
 };
 class CompGun : public Component {
 public:
+
+	enum GunType {
+		GUN_GUN,
+		GUN_LASER
+	};
+
+	GunType gun_type;
+
 	uint8_t group;
 	//bool fire;
 	Texture texture;
@@ -335,8 +347,12 @@ public:
 	float angle_spread;
 	int bullet_count;
 
+	EntityRef* laser_entity;
+	GraphicNode* laser_node;
+
 	CompGun() {
 		//fire=false;
+		gun_type=GUN_GUN;
 		group=0;
 		bullet_speed=700;
 		angle=0;
@@ -345,6 +361,9 @@ public:
 
 		angle_spread=0;
 		bullet_count=1;
+
+		laser_entity=nullptr;
+		laser_node=nullptr;
 	}
 };
 class CompEngine : public Component {
@@ -527,11 +546,9 @@ public:
 	sf::Vector2f bounce_vel;	//XXX remove
 	float angle;	//deg
 
-	//collisions
-	CompShape shape;
-
-	//health
-	CompHealth health;
+	//component cache
+	CompHealth* comp_health;
+	CompShape* comp_shape;
 
 	bool player_side;
 	bool fire_gun[8];
@@ -556,8 +573,12 @@ public:
 		for(int i=0;i<8;i++) fire_gun[i]=false;
 		player_side=false;
 
-		tmp_damage=10;
 		for(int i=0;i<10;i++) tmp_timeout[i]=0;
+
+		comp_health=nullptr;
+		comp_shape=nullptr;
+
+		tmp_damage=10;
 	}
 };
 /*
@@ -619,6 +640,9 @@ class EntityManager {
 		}
 		else if(type==Component::TYPE_HAMMER) {
 			c=new CompHammer();
+		}
+		else if(type==Component::TYPE_HEALTH) {
+			c=new CompHealth();
 		}
 		else {
 			printf("WARN: comp type %d not handled\n",type);
@@ -722,13 +746,21 @@ public:
 	//"simple" components, no indexing
 	Component* component_add(Entity* entity,Component::Type type) {
 		Component* comp=component_create(type);
-		if(comp==NULL) {
+		if(comp==nullptr) {
 			return comp;
 		}
 		comp->entity=entity;
 		Utils::vector_fit_size(component_map,type+1);
 		component_map[type].push_back(comp);
 		entity->components.push_back(comp);
+
+		//cached components
+		if(type==Component::TYPE_HEALTH) {
+			entity->comp_health=(CompHealth*)comp;
+		}
+		else if(type==Component::TYPE_SHAPE) {
+			entity->comp_shape=(CompShape*)comp;
+		}
 
 		if(on_component_added) {
 			on_component_added(comp);
@@ -738,6 +770,13 @@ public:
 	}
 	void component_remove(Component* component) {
 		components_to_remove.push_back(component);
+
+		if(component->type==Component::TYPE_HEALTH) {
+			component->entity->comp_health=nullptr;
+		}
+		else if(component->type==Component::TYPE_SHAPE) {
+			component->entity->comp_shape=nullptr;
+		}
 	}
 	//returns first found component of type
 	//TODO: slow
@@ -792,14 +831,14 @@ public:
 				//xxx temp
 				e->display.entity=e;
 				e->display.type=Component::TYPE_DISPLAY;
-				e->shape.entity=e;
-				e->shape.type=Component::TYPE_SHAPE;
-				e->health.entity=e;
-				e->health.type=Component::TYPE_HEALTH;
+				//e->comp_shape->entity=e;
+				//e->comp_shape->type=Component::TYPE_SHAPE;
+				//e->health.entity=e;
+				//e->health.type=Component::TYPE_HEALTH;
 				if(on_component_added) {
 					on_component_added(&e->display);
-					on_component_added(&e->shape);
-					on_component_added(&e->health);
+					//on_component_added(&e->shape);
+					//on_component_added(&e->health);
 				}
 
 			}
@@ -820,8 +859,8 @@ public:
 				//xxx temp
 				if(on_component_removed) {
 					on_component_removed(&e->display);
-					on_component_removed(&e->shape);
-					on_component_removed(&e->health);
+					//on_component_removed(&e->shape);
+					//on_component_removed(&e->health);
 				}
 
 				entities.erase(entities.begin()+index);
@@ -1112,7 +1151,7 @@ class Game : public Menu {
 
 			timeout=0;
 			gain=5;
-			duration=0.2;
+			duration=0.1;
 		}
 		void start() {
 			timeout=duration;
@@ -1442,7 +1481,7 @@ public:
 		const char* help_texts[]={
 				"Bastion\nQ - shield\nE - attract\nR - candy mine\nSPACE - hammer",
 				"Engineer\nQ - mine\nE - helper\nSPACE - blackhole mine",
-				"Assaulter\nQ - missiles\nE - teleport\nSPACE - bullet time",
+				"Assaulter\nQ - missiles\nE - teleport\nR - laser\nSPACE - bullet time",
 				"Fighter\nunfinished"
 		};
 
@@ -1497,6 +1536,13 @@ public:
 		CompTimeout* t=(CompTimeout*)entities.component_add(entity,Component::TYPE_TIMEOUT);
 		t->set(action,timeout);
 	}
+	void entity_add_health(Entity* entity,float health) {
+		if(!entity->comp_health) {
+			entities.component_add(entity,Component::TYPE_HEALTH);
+		}
+		entity->comp_health->reset(health);
+	}
+
 	//entity local to entity local
 	sf::Vector2f entity_rotate_vector(const Entity* e,const sf::Vector2f p) {
 		float theta = Utils::deg_to_rad(e->angle+90);	//XXX get rid of 90deg offset
@@ -1538,11 +1584,12 @@ public:
 	Entity* create_player() {
 		Entity* player=entities.entity_create();
 
-		player->shape.collision_group=CompShape::COLLISION_GROUP_PLAYER;
-		player->shape.collision_mask=(CompShape::COLLISION_GROUP_ENEMY|
+		entities.component_add(player,Component::TYPE_SHAPE);
+		player->comp_shape->collision_group=CompShape::COLLISION_GROUP_PLAYER;
+		player->comp_shape->collision_mask=(CompShape::COLLISION_GROUP_ENEMY|
 				CompShape::COLLISION_GROUP_ENEMY_BULLET|
 				CompShape::COLLISION_GROUP_TERRAIN);
-		player->shape.bounce=true;
+		player->comp_shape->bounce=true;
 
 		entities.attribute_add(player,Entity::ATTRIBUTE_PLAYER_CONTROL);
 		entities.attribute_add(player,Entity::ATTRIBUTE_FRIENDLY);
@@ -1550,7 +1597,9 @@ public:
 		player->player_side=true;
 		CompShowDamage* c_show_damage=(CompShowDamage*)entities.component_add(player,Component::TYPE_SHOW_DAMAGE);
 		c_show_damage->damage_type=CompShowDamage::DAMAGE_TYPE_SCREEN_EFFECT;
-		player->health.reset(100);
+
+		entity_add_health(player,100);
+
 		entity_show_on_minimap(player,Color(1,1,1,1));
 
 		return player;
@@ -1561,7 +1610,7 @@ public:
 
 		Texture tex=Loader::get_texture("player ships/Assaulter/assaulter.png");
 		player->display.add_texture_center(tex);
-		player->shape.add_quad_center(tex.get_size());
+		player->comp_shape->add_quad_center(tex.get_size());
 
 		CompEngine* e=(CompEngine*)entities.component_add(player,Component::TYPE_ENGINE);
 		e->set(graphic_engine,sf::Vector2f(0,tex.get_size().y*0.5));
@@ -1591,9 +1640,10 @@ public:
 		}
 		//laser
 		CompGun* g=(CompGun*)entities.component_add(player,Component::TYPE_GUN);
+		g->gun_type=CompGun::GUN_LASER;
 		g->texture=Loader::get_texture("player ships/Assaulter/railgun.png");
 		g->pos.x=0;
-		g->pos.y=-19;
+		g->pos.y=-27;
 		g->bullet_speed=800;
 		g->fire_timeout=0.02;
 		g->angle=0;
@@ -1612,7 +1662,7 @@ public:
 
 		Texture tex=Loader::get_texture("player ships/Hammership/ship1.png");
 		player->display.add_texture_center(tex);
-		player->shape.add_quad_center(tex.get_size());
+		player->comp_shape->add_quad_center(tex.get_size());
 
 		//shotguns
 		for(int i=0;i<2;i++) {
@@ -1663,7 +1713,7 @@ public:
 		player->display.add_texture(Loader::get_texture("player ships/Slasher/blade2.png"),-tex.get_size()*0.5f+sf::Vector2f(68-5-11,-26));
 
 		player->display.add_texture_center(tex);
-		player->shape.add_quad_center(tex.get_size());
+		player->comp_shape->add_quad_center(tex.get_size());
 
 		for(int i=0;i<2;i++) {
 			CompEngine* e=(CompEngine*)entities.component_add(player,Component::TYPE_ENGINE);
@@ -1710,7 +1760,7 @@ public:
 		Entity* player=create_player();
 		Texture tex=Loader::get_texture("player ships/Engineer/engineer.png");
 		player->display.add_texture_center(tex);
-		player->shape.add_quad_center(tex.get_size());
+		player->comp_shape->add_quad_center(tex.get_size());
 
 		Texture tex_hook=Loader::get_texture("player ships/Engineer/hook.png");
 
@@ -1733,22 +1783,26 @@ public:
 
 		Entity* bullet=entities.entity_create();
 		bullet->display.add_texture_center(tex,scale);
-		bullet->shape.add_quad_center(tex.get_size()*scale);
+
+		entities.component_add(bullet,Component::TYPE_SHAPE);
+		bullet->comp_shape->add_quad_center(tex.get_size()*scale);
 
 		if(player_side) {
-			bullet->shape.collision_group=CompShape::COLLISION_GROUP_PLAYER_BULLET;
-			bullet->shape.collision_mask=(CompShape::COLLISION_GROUP_TERRAIN|
+			bullet->comp_shape->collision_group=CompShape::COLLISION_GROUP_PLAYER_BULLET;
+			bullet->comp_shape->collision_mask=(CompShape::COLLISION_GROUP_TERRAIN|
 					CompShape::COLLISION_GROUP_ENEMY);
 		}
 		else {
-			bullet->shape.collision_group=CompShape::COLLISION_GROUP_ENEMY_BULLET;
-			bullet->shape.collision_mask=(CompShape::COLLISION_GROUP_TERRAIN|
+			bullet->comp_shape->collision_group=CompShape::COLLISION_GROUP_ENEMY_BULLET;
+			bullet->comp_shape->collision_mask=(CompShape::COLLISION_GROUP_TERRAIN|
 					CompShape::COLLISION_GROUP_PLAYER);
 		}
 		bullet->player_side=player_side;
 
 		entities.attribute_add(bullet,Entity::ATTRIBUTE_REMOVE_ON_DEATH);
 		entity_add_timeout(bullet,CompTimeout::ACTION_REMOVE_ENTITY,2.0f);
+
+		entity_add_health(bullet,1);
 
 		return bullet;
 	}
@@ -1757,6 +1811,7 @@ public:
 		CompTimeout* t=(CompTimeout*)entities.component_get(e,Component::TYPE_TIMEOUT);
 		t->timeout=20.0f;
 		e->tmp_damage=100.0f;
+		entity_add_health(e,10);
 		return e;
 	}
 	Entity* create_candy_mine() {
@@ -1765,8 +1820,10 @@ public:
 		t->timeout=2.0f;
 		t->action=CompTimeout::ACTION_BIG_EXPLOSION;
 		e->tmp_damage=200.0f;
-		e->shape.enabled=false;
 
+		entities.component_remove(e->comp_shape);
+
+		entity_add_health(e,10);
 		entities.attribute_add(e,Entity::ATTRIBUTE_REMOVE_ON_DEATH);
 		entities.attribute_add(e,Entity::ATTRIBUTE_ATTRACT);
 
@@ -1781,16 +1838,18 @@ public:
 		Texture tex=Loader::get_texture("player ships/Engineer/helper1.png");
 		k->display.add_texture_center(tex,scale);
 
-		k->shape.add_quad_center(tex.get_size()*scale);
+		entities.component_add(k,Component::TYPE_SHAPE);
+
+		k->comp_shape->add_quad_center(tex.get_size()*scale);
 		entities.attribute_add(k,Entity::ATTRIBUTE_REMOVE_ON_DEATH);
 		entities.attribute_add(k,Entity::ATTRIBUTE_FRIENDLY);
 
-		k->shape.collision_group=CompShape::COLLISION_GROUP_PLAYER;
-		k->shape.collision_mask=(CompShape::COLLISION_GROUP_ENEMY|
+		k->comp_shape->collision_group=CompShape::COLLISION_GROUP_PLAYER;
+		k->comp_shape->collision_mask=(CompShape::COLLISION_GROUP_ENEMY|
 				CompShape::COLLISION_GROUP_ENEMY_BULLET/*|
 				CompShape::COLLISION_GROUP_TERRAIN*/);
 
-		k->shape.bounce=true;
+		k->comp_shape->bounce=true;
 
 		k->player_side=true;
 
@@ -1800,7 +1859,7 @@ public:
 
 		entity_show_on_minimap(k,Color(0,0,1,1));
 
-		k->health.reset(100);
+		entity_add_health(k,100);
 
 		CompAI* ai=(CompAI*)entities.component_add(k,Component::TYPE_AI);
 		ai->ai_type=CompAI::AI_FOLLOWER;
@@ -1835,16 +1894,18 @@ public:
 
 		Entity* missile=entities.entity_create();
 		missile->display.add_graphic_center(g,scale);
-		missile->shape.add_quad_center(g.get_texture().get_size()*scale);
+
+		entities.component_add(missile,Component::TYPE_SHAPE);
+		missile->comp_shape->add_quad_center(g.get_texture().get_size()*scale);
 
 		if(player_side) {
-			missile->shape.collision_group=CompShape::COLLISION_GROUP_PLAYER_BULLET;
-			missile->shape.collision_mask=(CompShape::COLLISION_GROUP_TERRAIN|
+			missile->comp_shape->collision_group=CompShape::COLLISION_GROUP_PLAYER_BULLET;
+			missile->comp_shape->collision_mask=(CompShape::COLLISION_GROUP_TERRAIN|
 					CompShape::COLLISION_GROUP_ENEMY);
 		}
 		else {
-			missile->shape.collision_group=CompShape::COLLISION_GROUP_ENEMY_BULLET;
-			missile->shape.collision_mask=(CompShape::COLLISION_GROUP_TERRAIN|
+			missile->comp_shape->collision_group=CompShape::COLLISION_GROUP_ENEMY_BULLET;
+			missile->comp_shape->collision_mask=(CompShape::COLLISION_GROUP_TERRAIN|
 					CompShape::COLLISION_GROUP_PLAYER);
 		}
 		missile->player_side=player_side;
@@ -1862,6 +1923,8 @@ public:
 		CompEngine* eng=(CompEngine*)entities.component_add(missile,Component::TYPE_ENGINE);
 		eng->set(graphic_engine,sf::Vector2f(0,g.get_texture().get_size().y*scale*0.5));
 
+		entity_add_health(missile,10);
+
 		return missile;
 	}
 
@@ -1871,15 +1934,16 @@ public:
 		Entity* k=entities.entity_create();
 		k->display.add_graphic_center(g,scale);
 
-		k->shape.add_quad_center(g.get_texture().get_size()*scale);
+		entities.component_add(k,Component::TYPE_SHAPE);
+		k->comp_shape->add_quad_center(g.get_texture().get_size()*scale);
 		entities.attribute_add(k,Entity::ATTRIBUTE_REMOVE_ON_DEATH);
 		entities.attribute_add(k,Entity::ATTRIBUTE_ENEMY);
 
-		k->shape.collision_group=CompShape::COLLISION_GROUP_ENEMY;
-		k->shape.collision_mask=(CompShape::COLLISION_GROUP_TERRAIN|
+		k->comp_shape->collision_group=CompShape::COLLISION_GROUP_ENEMY;
+		k->comp_shape->collision_mask=(CompShape::COLLISION_GROUP_TERRAIN|
 				CompShape::COLLISION_GROUP_PLAYER|
 				CompShape::COLLISION_GROUP_PLAYER_BULLET);
-		k->shape.bounce=true;
+		k->comp_shape->bounce=true;
 
 
 		CompShowDamage* c_show_damage=(CompShowDamage*)entities.component_add(k,Component::TYPE_SHOW_DAMAGE);
@@ -1887,7 +1951,7 @@ public:
 
 		entity_show_on_minimap(k,Color(1,0,0,1));
 
-		k->health.reset(100);
+		entity_add_health(k,100);
 		return k;
 	}
 	Entity* create_enemy_suicide(const Graphic& g) {
@@ -1966,7 +2030,7 @@ public:
 		terrain.damage_area(sf::FloatRect(d_pos,d_size),100);
 
 		for(Entity * e : entities.entities) {
-			if(e->shape.enabled && !e->player_side) {
+			if(e->comp_shape->enabled && !e->player_side) {
 				float dist=Utils::vec_length_fast(e->pos-pos);
 
 				if(dist<radius2) {
@@ -2000,11 +2064,17 @@ public:
 	//"events"
 	void entity_damage(Entity* e,float dmg) {
 
+		if(!e->comp_health) {
+			return;
+		}
+
 		if(entities.component_get(e,Component::TYPE_SHIELD)) {
 			return;
 		}
 
-		e->health.health-=dmg;
+		CompHealth* health=e->comp_health;
+
+		health->health-=dmg;
 
 		CompShowDamage* c_show_damage=(CompShowDamage*)entities.component_get(e,Component::TYPE_SHOW_DAMAGE);
 		if(c_show_damage) {
@@ -2016,15 +2086,14 @@ public:
 			}
 		}
 
-		if(e->health.health/e->health.health_max<0.3 && entities.component_get(e,Component::TYPE_FLAME_DAMAGE)==nullptr) {
+		if(health->health/health->health_max<0.3 && entities.component_get(e,Component::TYPE_FLAME_DAMAGE)==nullptr) {
 			entities.component_add(e,Component::TYPE_FLAME_DAMAGE);
 		}
 
-		if(e->health.health<=0 && e->health.alive) {
-			e->health.alive=false;
+		if(health->health<=0 && health->alive) {
+			health->alive=false;
 
 			if(entities.attribute_has(e,Entity::ATTRIBUTE_REMOVE_ON_DEATH)) {
-
 				if(e->tmp_damage>90.0) {
 					add_big_explosion(e->pos);
 				}
@@ -2077,6 +2146,10 @@ public:
 	}
 
 	void wave_manager_frame(float dt) {
+		if(selected_level==0) {
+			return;
+		}
+
 		if(!swarms.empty()) {
 			return;
 		}
@@ -2121,6 +2194,7 @@ public:
 			*/
 			e->fire_gun[0]=pressed;
 			e->fire_gun[1]=pressed_right;
+			e->fire_gun[2]=sf::Keyboard::isKeyPressed(sf::Keyboard::R);
 
 			for(int i=0;i<8;i++) {
 				if(e->fire_gun[i]) {
@@ -2158,59 +2232,67 @@ public:
 			for(GraphicNode::Ptr& d : e->display.nodes) {
 				d->update(dt);
 			}
+		}
 
-			//shape
-			if(e->shape.enabled) {
-				for(const Quad& q : e->shape.quads) {
-					Quad q2=q;
-					q2.translate(e->pos);
+		for(Component* ccomp : entities.component_list(Component::TYPE_SHAPE)) {
+			CompShape* shape=(CompShape*)ccomp;
+			Entity* e=shape->entity;
 
-					//terrain collision
-					if(e->shape.collision_mask&CompShape::COLLISION_GROUP_TERRAIN) {
-						sf::Vector2f q_size=q2.p2-q2.p1;
+			if(!shape->enabled) {
+				continue;
+			}
+			for(const Quad& q : shape->quads) {
+				Quad q2=q;
+				q2.translate(e->pos);
 
-						sf::FloatRect r(q2.p1,q_size);
-						sf::Vector2f col_normal;
-						if(terrain.check_collision(r,col_normal)) {
-							terrain.damage_area(r,20);
-							entity_damage(e,10);
-							CompBounce* c_bounce=(CompBounce*)entities.component_add(e,Component::TYPE_BOUNCE);
-							c_bounce->timer.reset(0.3);
-							c_bounce->vel=Utils::vec_reflect(e->vel,col_normal);
-						}
+				//terrain collision
+				if(e->comp_shape->collision_mask&CompShape::COLLISION_GROUP_TERRAIN) {
+					sf::Vector2f q_size=q2.p2-q2.p1;
+
+					sf::FloatRect r(q2.p1,q_size);
+					sf::Vector2f col_normal;
+					if(terrain.check_collision(r,col_normal)) {
+						terrain.damage_area(r,20);
+						entity_damage(e,10);
+						CompBounce* c_bounce=(CompBounce*)entities.component_add(e,Component::TYPE_BOUNCE);
+						c_bounce->timer.reset(0.3);
+						c_bounce->vel=Utils::vec_reflect(e->vel,col_normal);
+					}
+				}
+
+				//brute-force collisions
+				for(Component* ccomp2 : entities.component_list(Component::TYPE_SHAPE)) {
+					CompShape* shape2=(CompShape*)ccomp2;
+					Entity* ce=shape2->entity;
+
+					if(ce==e || !shape->enabled) {
+						continue;
 					}
 
-					//brute-force collisions
-					for(Entity* ce : entities.entities) {
-						if(ce==e || !ce->shape.enabled) {
-							continue;
-						}
+					if( (e->comp_shape->collision_group&ce->comp_shape->collision_mask)==0 ||
+							(ce->comp_shape->collision_group&e->comp_shape->collision_mask)==0) {
+						continue;
+					}
 
-						if( (e->shape.collision_group&ce->shape.collision_mask)==0 ||
-								(ce->shape.collision_group&e->shape.collision_mask)==0) {
-							continue;
-						}
+					for(const Quad& cq : ce->comp_shape->quads) {
 
-						for(const Quad& cq : ce->shape.quads) {
+						Quad cq2=cq;
+						cq2.translate(ce->pos);
 
-							Quad cq2=cq;
-							cq2.translate(ce->pos);
+						if(q2.intersects(cq2)) {
+							entity_damage(e,shape2->hit_damage);
+							entity_damage(ce,shape->hit_damage);
 
-							if(q2.intersects(cq2)) {
-								entity_damage(e,ce->tmp_damage);
-								entity_damage(ce,e->tmp_damage);
+							if(e->comp_shape->bounce && ce->comp_shape->bounce) {
+								sf::Vector2f b_vel=Utils::vec_normalize(e->pos-ce->pos)*100.0f;
 
-								if(e->shape.bounce && ce->shape.bounce) {
-									sf::Vector2f b_vel=Utils::vec_normalize(e->pos-ce->pos)*100.0f;
+								CompBounce* c_bounce1=(CompBounce*)entities.component_add(e,Component::TYPE_BOUNCE);
+								c_bounce1->timer.reset(0.3);
+								c_bounce1->vel=b_vel;
 
-									CompBounce* c_bounce1=(CompBounce*)entities.component_add(e,Component::TYPE_BOUNCE);
-									c_bounce1->timer.reset(0.3);
-									c_bounce1->vel=b_vel;
-
-									CompBounce* c_bounce2=(CompBounce*)entities.component_add(ce,Component::TYPE_BOUNCE);
-									c_bounce2->timer.reset(0.3);
-									c_bounce2->vel=-b_vel;
-								}
+								CompBounce* c_bounce2=(CompBounce*)entities.component_add(ce,Component::TYPE_BOUNCE);
+								c_bounce2->timer.reset(0.3);
+								c_bounce2->vel=-b_vel;
 							}
 						}
 					}
@@ -2469,23 +2551,64 @@ public:
 		for(Component* ccomp : entities.component_list(Component::TYPE_GUN)) {
 			CompGun* g=(CompGun*)ccomp;
 
-			if(g->cur_fire_timeout>0) {
-				g->cur_fire_timeout-=dt;
-			}
-			if(!g->entity->fire_gun[g->group] || g->cur_fire_timeout>0) continue;
-			g->cur_fire_timeout=g->fire_timeout;
+			if(g->gun_type==CompGun::GUN_LASER) {
+				//laser
+				if(!g->entity->fire_gun[g->group]) {
 
-			for(int i=0;i<g->bullet_count;i++) {
-				float angle=g->angle;
-				if(g->bullet_count>1) {
-					angle=g->angle-g->angle_spread*0.5+(float)i/((float)g->bullet_count-1)*g->angle_spread;
+					if(g->laser_entity && g->laser_entity->entity) {
+						g->laser_entity->entity->display.root_node.visible=false;
+					}
+
+					continue;
 				}
 
-				Entity* bullet=create_bullet(g->texture,g->entity->player_side);
-				bullet->pos=g->entity->pos+entity_rotate_vector(g->entity,g->pos);
-				bullet->angle=g->entity->angle+angle;
-				bullet->vel=Utils::vec_for_angle_deg(bullet->angle,g->bullet_speed);
-				entity_add(bullet);
+				if(!g->laser_entity) {
+					Entity* e=entities.entity_create();
+					g->laser_node=e->display.add_texture_center(g->texture);
+					g->laser_node->pos.y=0.0f;
+					g->laser_node->scale.y=100;
+					g->laser_node->texture.tex->setRepeated(true);
+					g->laser_node->shader.shader=Loader::get_shader("shader/laser.frag");
+
+					g->laser_entity=entities.entity_ref_create(e);
+					g->my_refs.push_back(g->laser_entity);
+					entity_add(e);
+				}
+				if(!g->laser_entity->entity) {
+					printf("error: no laser entity!\n");
+					continue;
+				}
+
+				sf::Vector2f pos=g->entity->pos+entity_rotate_vector(g->entity,g->pos);
+				float angle=g->entity->angle+g->angle;
+
+				g->laser_entity->entity->pos=pos;
+				g->laser_entity->entity->angle=angle+180;
+				g->laser_entity->entity->display.root_node.visible=true;
+
+			}
+			else {
+				//gun
+				if(g->cur_fire_timeout>0) {
+					g->cur_fire_timeout-=dt;
+				}
+				if(!g->entity->fire_gun[g->group] || g->cur_fire_timeout>0) {
+					continue;
+				}
+				g->cur_fire_timeout=g->fire_timeout;
+
+				for(int i=0;i<g->bullet_count;i++) {
+					float angle=g->angle;
+					if(g->bullet_count>1) {
+						angle=g->angle-g->angle_spread*0.5+(float)i/((float)g->bullet_count-1)*g->angle_spread;
+					}
+
+					Entity* bullet=create_bullet(g->texture,g->entity->player_side);
+					bullet->pos=g->entity->pos+entity_rotate_vector(g->entity,g->pos);
+					bullet->angle=g->entity->angle+angle;
+					bullet->vel=Utils::vec_for_angle_deg(bullet->angle,g->bullet_speed);
+					entity_add(bullet);
+				}
 			}
 		}
 		for(Component* ccomp : entities.component_list(Component::TYPE_TELEPORTATION)) {
@@ -2497,7 +2620,9 @@ public:
 				entities.component_remove(tele);
 
 				tele->entity->node_main.visible=true;	//scale=sf::Vector2f(1,1);
-				tele->entity->shape.enabled=true;
+				if(tele->entity->comp_shape) {
+					tele->entity->comp_shape->enabled=true;
+				}
 				continue;
 			}
 
@@ -2518,7 +2643,9 @@ public:
 			tele->entity->node_main.visible=false;//scale=sf::Vector2f(a,2.0f-a);
 			tele->entity->pos=c_pos;
 
-			tele->entity->shape.enabled=false;
+			if(tele->entity->comp_shape) {
+				tele->entity->comp_shape->enabled=false;
+			}
 		}
 		for(Component* ccomp : entities.event_list_components(Component::TYPE_SHOW_DAMAGE,Component::EVENT_FRAME)) {
 			CompShowDamage* comp=(CompShowDamage*)ccomp;
@@ -2633,9 +2760,118 @@ public:
 		//xxx
 		for(Entity* e : entities.entities) {
 			e->pos+=e->vel*dt;
+		}
+
+		//update lasers
+		for(Component* ccomp : entities.component_list(Component::TYPE_GUN)) {
+			CompGun* g=(CompGun*)ccomp;
+			if(!g->laser_entity || !g->laser_entity->entity) {
+				continue;
+			}
+			if(!g->laser_entity->entity->display.root_node.visible) {
+				continue;
+			}
+
+			float angle=g->entity->angle+g->angle;
+			sf::Vector2f pos=g->entity->pos+entity_rotate_vector(g->entity,g->pos);
+
+			g->laser_entity->entity->pos=pos;
+
+			//damage detection
+
+			float laser_range=1000.0f;
+
+			sf::Vector2f laser_p1=pos;
+			sf::Vector2f laser_p2=pos+Utils::vec_for_angle_deg(angle,laser_range);
+
+			//terrain
+			Terrain::RayQuery query=terrain.query_ray(laser_p1,laser_p2);
+
+			//ship collision
+			uint8_t laser_collision_group;
+			uint8_t laser_collision_mask;
+
+			if(g->entity->player_side) {
+				laser_collision_group=CompShape::COLLISION_GROUP_PLAYER_BULLET;
+				laser_collision_mask=(CompShape::COLLISION_GROUP_TERRAIN|
+						CompShape::COLLISION_GROUP_ENEMY);
+			}
+			else {
+				laser_collision_group=CompShape::COLLISION_GROUP_ENEMY_BULLET;
+				laser_collision_mask=(CompShape::COLLISION_GROUP_TERRAIN|
+						CompShape::COLLISION_GROUP_PLAYER);
+			}
+
+			Quad laser_bbox(laser_p1,laser_p2);
+			laser_bbox.sort_points();
+
+			Entity* hit_ship=nullptr;
+			float laser_hit_pos=1.0f;
+
+			if(query.hit) {
+				laser_hit_pos=query.hit_position;
+				//laser_p2=pos+Utils::vec_for_angle_deg(angle,laser_hit_pos);
+			}
+
+			//ships
+			for(Component* ccomp : entities.component_list(Component::TYPE_SHAPE)) {
+				CompShape* shape=(CompShape*)ccomp;
+				if(!shape->enabled) {
+					continue;
+				}
+				if( (laser_collision_group&shape->collision_mask)==0 ||
+					(shape->collision_group&laser_collision_mask)==0) {
+					continue;
+				}
+
+				bool skip=false;
+				for(Quad q : shape->quads) {
+					q.translate(shape->entity->pos);
+					bool p1_inside=false;
+					float hit_pos=1.0;
+
+					if(Utils::line_quad_intersection(laser_p1,laser_p2,q,hit_pos,p1_inside)) {
+						if(p1_inside) {
+							laser_hit_pos=0.0f;
+							hit_ship=shape->entity;
+							skip=true;
+							break;
+						}
+						if(hit_pos<laser_hit_pos) {
+							laser_hit_pos=hit_pos;
+							hit_ship=shape->entity;
+						}
+					}
+
+				}
+				if(skip) {
+					break;
+				}
+			}
+
+			float laser_length=laser_range*laser_hit_pos;
+
+			if(hit_ship) {
+				entity_damage(hit_ship,dt*300);
+			}
+			else {
+				if(query.hit) {
+					terrain.damage_ray(query,dt*100);
+				}
+			}
+
+			g->laser_node->scale.y=laser_length/g->texture.get_size().y;
+
+			g->laser_node->shader.set_param("time",game_time);
+			g->laser_node->shader.set_param("y_scale",g->laser_node->scale.y);
+
+		}
+
+		for(Entity* e : entities.entities) {
 			e->node_main.pos=e->pos;
 			e->node_main.rotation=e->angle+90;
 		}
+
 
 		//camera
 		cam_shake.frame(dt);
