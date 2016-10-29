@@ -23,6 +23,16 @@ weapon help text
 level select menu
 laser
 
+walrus
+
+hook
+electricity
+melee slash
+grappling hook
+stun blast
+rotating blades
+electric blades
+
 ship shining effect
 
 enemies warp in
