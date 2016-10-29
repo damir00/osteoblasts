@@ -7,6 +7,7 @@
 #include <vector>
 #include <unordered_set>
 #include <functional>
+#include <sstream>
 
 #include <SFML/System.hpp>
 
@@ -142,16 +143,27 @@ public:
 
 
 class GraphicNode : public Node {
+
+	void update_frame() {
+		int next_frame=(anim_time/graphic.animation.delay);
+		if(anim_current_frame!=next_frame) {
+			texture=graphic.get_texture(next_frame);
+			anim_current_frame=next_frame;
+		}
+	}
+
 public:
 	Graphic graphic;
 	int anim_current_frame;
 	float anim_time;
 	bool repeat;
+	float speed;
 
 	GraphicNode() {
 		anim_time=0;
 		anim_current_frame=0;
 		repeat=false;
+		speed=1.0;
 	}
 	GraphicNode(const Graphic& _graphic) {
 		set_graphic(_graphic);
@@ -162,6 +174,10 @@ public:
 		anim_time=0;
 		anim_current_frame=0;
 	}
+	void set_animation_progress(float progress) { //0-1
+		anim_time=graphic.animation.duration*progress;
+		update_frame();
+	}
 
 	void update(float dt) {
 		if(!graphic.is_animated()) {
@@ -171,7 +187,7 @@ public:
 			return;
 		}
 
-		anim_time+=dt;
+		anim_time+=dt*speed;
 		if(repeat) {
 			anim_time=fmod(anim_time,graphic.animation.duration);
 		}
@@ -179,11 +195,7 @@ public:
 			anim_time=std::min(anim_time,graphic.animation.duration-0.001f);
 		}
 
-		int next_frame=(anim_time/graphic.animation.delay);
-		if(anim_current_frame!=next_frame) {
-			texture=graphic.get_texture(next_frame);
-			anim_current_frame=next_frame;
-		}
+		update_frame();
 	}
 	typedef std::unique_ptr<GraphicNode> Ptr;
 };
@@ -212,6 +224,7 @@ public:
 		TYPE_GUN,
 		TYPE_TIMEOUT,
 		TYPE_AI,
+		TYPE_AI2,
 		TYPE_ENGINE,
 		TYPE_TELEPORTATION,
 		TYPE_SHOW_DAMAGE,
@@ -424,7 +437,8 @@ public:
 		AI_MELEE,
 		AI_SHOOTER,
 		AI_MISSILE,
-		AI_FOLLOWER
+		AI_FOLLOWER,
+		AI_AVOIDER
 	};
 	AIType ai_type;
 
@@ -433,12 +447,46 @@ public:
 	sf::Vector2f rand_offset;	//normalized [-1,1]
 	sf::Vector2f target_offset;	//world-space
 
+	float engage_distance;
+
 	CompAI() {
 		ai_type=AI_SUICIDE;
 		rand_offset=Utils::rand_vec(-1,1);
 		target=NULL;
+		engage_distance=600.0f;
 	}
 };
+class CompAI2 : public Component {
+public:
+
+	enum AIBehavior {
+		AI_BEHAVIOR_COLLIDE,
+		AI_BEHAVIOR_SAFE_FOLLOW,
+		AI_BEHAVIOR_SHOOT,
+		AI_BEHAVIOR_AIM_SHOOT,	//rotate guns to aim
+		AI_BEHAVIOR_SPAWN_MINIONS
+	};
+
+	float idle_distance;
+	float safe_follow_distance;
+
+	std::vector<std::string> spawn_ids;
+	float spawn_interval;
+	float spawn_timeout;
+
+	std::vector<AIBehavior> behaviors;
+
+	std::vector<std::pair<std::string,int> > death_spawn_ids;
+
+	CompAI2() {
+		idle_distance=600.0f;
+		safe_follow_distance=300.0f;
+		spawn_interval=3;
+		spawn_timeout=0;
+	}
+};
+
+
 class CompTeleportation : public Component {
 public:
 	sf::Vector2f origin;
@@ -456,14 +504,17 @@ class CompShowDamage : public Component {
 public:
 	enum DamageType {
 		DAMAGE_TYPE_BLINK,
-		DAMAGE_TYPE_SCREEN_EFFECT
+		DAMAGE_TYPE_SCREEN_EFFECT,
+		DAMAGE_TYPE_ANIMATION_PROGRESS
 	};
 	DamageType damage_type;
 	SimpleTimer timer;
+	GraphicNode* animation_progress_node;
 
 	CompShowDamage() {
 		damage_type=DAMAGE_TYPE_BLINK;
 		timer.reset(0.5);
+		animation_progress_node=nullptr;
 	}
 };
 class CompBounce : public Component {
@@ -533,7 +584,9 @@ public:
 		ATTRIBUTE_ENEMY,		//all enemies
 		ATTRIBUTE_FRIENDLY,		//all friendlies
 		ATTRIBUTE_ATTRACT,		//candy mine
-		ATTRIBUTE_INTEGRATE_POSITION
+		ATTRIBUTE_INTEGRATE_POSITION,
+
+		ATTRIBUTE_BOSS
 	};
 
 	//XXX move all members to comps/attrs
@@ -615,6 +668,9 @@ class EntityManager {
 		}
 		else if(type==Component::TYPE_AI) {
 			c=new CompAI();
+		}
+		else if(type==Component::TYPE_AI2) {
+			c=new CompAI2();
 		}
 		else if(type==Component::TYPE_ENGINE) {
 			c=new CompEngine();
@@ -775,16 +831,6 @@ public:
 	}
 	void component_remove(Component* component) {
 		components_to_remove.push_back(component);
-
-		if(component->type==Component::TYPE_HEALTH) {
-			component->entity->comp_health=nullptr;
-		}
-		else if(component->type==Component::TYPE_SHAPE) {
-			component->entity->comp_shape=nullptr;
-		}
-		else if(component->type==Component::TYPE_DISPLAY) {
-			component->entity->comp_display=nullptr;
-		}
 	}
 	//returns first found component of type
 	//TODO: slow
@@ -890,6 +936,18 @@ public:
 				if(index==-1) {
 					//printf("comp not in map\n");
 					continue;
+				}
+
+				if(c->entity) {
+					if(c->type==Component::TYPE_HEALTH) {
+						c->entity->comp_health=nullptr;
+					}
+					else if(c->type==Component::TYPE_SHAPE) {
+						c->entity->comp_shape=nullptr;
+					}
+					else if(c->type==Component::TYPE_DISPLAY) {
+						c->entity->comp_display=nullptr;
+					}
 				}
 
 				if(on_component_removed) {
@@ -1202,8 +1260,9 @@ class Game : public Menu {
 	Controls controls;
 
 	float game_time;
+	bool level_won;
 
-	std::pair<std::string,std::function<Entity*()> > entity_create_map;
+	std::unordered_map<std::string,std::function<Entity*()> > entity_create_map;
 
 public:
 
@@ -1252,7 +1311,10 @@ public:
 
 	Game() {
 
-		//entity_create_map.second=
+		entity_create_map["enemy/walrus/random"]=std::bind(&Game::create_walrus_random,this);
+		entity_create_map["enemy/walrus/boss_split1"]=std::bind(&Game::create_walrus_boss,this,1);
+		entity_create_map["enemy/walrus/boss_split2"]=std::bind(&Game::create_walrus_boss,this,2);
+		entity_create_map["enemy/walrus/boss_split3"]=std::bind(&Game::create_walrus_boss,this,3);
 
 		player_ship=0;
 		selected_level=0;
@@ -1462,6 +1524,7 @@ public:
 		//reset
 		time_scale=1.0;
 		game_time=0.0;
+		level_won=false;
 		use_shader_damage=false;
 
 		//cleanup
@@ -1495,6 +1558,27 @@ public:
 
 
 		entity_add(player);
+
+		sf::Vector2f boss_pos=Utils::vec_for_angle(Utils::rand_angle(),200/*2000*/);
+
+		Entity* boss=create_walrus_boss(0);
+		boss->pos=boss_pos;
+		entity_add(boss);
+
+		/*
+		for(int i=0;i<100;i++) {
+			std::stringstream ss;
+			ss<<"enemies/Walrus/walrus"<<Utils::rand_range_i(1,8)<<".png";
+			Graphic g(Loader::get_texture(ss.str()));
+			Entity* enemy=create_enemy_melee(g);
+
+			float dist=Easing::inQuad(Utils::rand_range(0.2,1))*2500.0;
+			//float dist=Utils::rand_range(0.2,1.0)*2500.0;
+			enemy->pos=boss_pos+Utils::vec_for_angle(Utils::rand_angle(),dist);
+
+			entity_add(enemy);
+		}
+		*/
 
 		/*
 		for(int i=0;i<100;i++) {
@@ -1963,6 +2047,12 @@ public:
 		ai->ai_type=CompAI::AI_SUICIDE;
 		return k;
 	}
+	Entity* create_enemy_melee(const Graphic& g) {
+		Entity* k=create_enemy(g);
+		CompAI* ai=(CompAI*)entities.component_add(k,Component::TYPE_AI);
+		ai->ai_type=CompAI::AI_MELEE;
+		return k;
+	}
 	Entity* create_enemy_shooter(const Graphic& g,int dir/*0=up,1=down,2=side*/) {
 		Entity* k=create_enemy(g);
 		CompAI* ai=(CompAI*)entities.component_add(k,Component::TYPE_AI);
@@ -1992,6 +2082,74 @@ public:
 
 		return k;
 	}
+
+
+	//walrus
+	Entity* create_walrus_boss(int split_level) {
+		Entity* e;
+
+		if(split_level==0) {
+			Graphic graphic(Animation(Loader::get_texture("enemies/Walrus/boss/walrus boss.png"),92,72,0.1));
+			e=create_enemy(graphic);
+
+			GraphicNode::Ptr& node=e->comp_display->nodes[0];
+			node->repeat=false;
+			node->speed=0;
+
+			CompShowDamage* damage=(CompShowDamage*)entities.component_add(e,Component::TYPE_SHOW_DAMAGE);
+			damage->damage_type=CompShowDamage::DAMAGE_TYPE_ANIMATION_PROGRESS;
+			damage->animation_progress_node=node.get();
+		}
+		else if(split_level==1) {
+			e=create_enemy(Graphic(Loader::get_texture("enemies/Walrus/boss/split1.png")));
+		}
+		else if(split_level==2) {
+			e=create_enemy(Graphic(Loader::get_texture("enemies/Walrus/boss/split2.png")));
+		}
+		else if(split_level==3) {
+			e=create_enemy(Graphic(Loader::get_texture("enemies/Walrus/boss/split3.png")));
+		}
+
+		float walrus_power=1.0f/std::pow(2.0,(float)split_level);
+		e->comp_health->reset(1000.0f*walrus_power);
+
+		CompAI2* ai=(CompAI2*)entities.component_add(e,Component::TYPE_AI2);
+		ai->behaviors.push_back(CompAI2::AI_BEHAVIOR_SAFE_FOLLOW);
+		ai->behaviors.push_back(CompAI2::AI_BEHAVIOR_SPAWN_MINIONS);
+		ai->spawn_ids.push_back("enemy/walrus/random");
+		ai->spawn_interval=3.0/walrus_power;
+
+		if(split_level==0) {
+			ai->death_spawn_ids.push_back(std::make_pair("enemy/walrus/boss_split1",2));
+		}
+		else if(split_level==1) {
+			ai->death_spawn_ids.push_back(std::make_pair("enemy/walrus/boss_split2",2));
+		}
+		else if(split_level==2) {
+			ai->death_spawn_ids.push_back(std::make_pair("enemy/walrus/boss_split3",2));
+		}
+
+		entities.attribute_add(e,Entity::ATTRIBUTE_BOSS);
+
+		return e;
+	}
+
+	Entity* create_walrus_random() {
+		std::stringstream ss;
+		ss<<"enemies/Walrus/walrus"<<Utils::rand_range_i(1,8)<<".png";
+		Graphic g(Loader::get_texture(ss.str()));
+		return create_enemy_melee(g);
+	}
+
+	Entity* create_by_id(const std::string& id) {
+		if(entity_create_map.count(id)>0) {
+			return entity_create_map[id]();
+		}
+		printf("WARN: can't create entity %s\n",id.c_str());
+		return nullptr;
+	}
+
+
 	/*
 	void add_swarm(int count,int pattern) {
 		SwarmManager* swarm=new SwarmManager();
@@ -2081,6 +2239,7 @@ public:
 
 		health->health-=dmg;
 
+		/*
 		CompShowDamage* c_show_damage=(CompShowDamage*)entities.component_get(e,Component::TYPE_SHOW_DAMAGE);
 		if(c_show_damage) {
 			c_show_damage->timer.reset();
@@ -2090,6 +2249,30 @@ public:
 				use_shader_damage=true;
 			}
 		}
+		*/
+		//XXX make fast
+		for(Component* comp : e->components) {
+			if(comp->type!=Component::TYPE_SHOW_DAMAGE) {
+				continue;
+			}
+			CompShowDamage* damage=(CompShowDamage*)comp;
+			if(damage->damage_type==CompShowDamage::DAMAGE_TYPE_ANIMATION_PROGRESS) {
+				//printf("FLOP DAMGE %f\n",e->comp_health->health/e->comp_health->health_max);
+				if(damage->animation_progress_node) {
+					damage->animation_progress_node->set_animation_progress(1.0f-e->comp_health->health/e->comp_health->health_max);
+				}
+			}
+			else if(damage->damage_type==CompShowDamage::DAMAGE_TYPE_BLINK) {
+				damage->timer.reset();
+				entities.event_add(damage,Component::EVENT_FRAME);
+			}
+			else if(damage->damage_type==CompShowDamage::DAMAGE_TYPE_SCREEN_EFFECT) {
+				damage->timer.reset();
+				entities.event_add(damage,Component::EVENT_FRAME);
+				use_shader_damage=true;
+			}
+		}
+
 
 		if(health->health/health->health_max<0.3 && entities.component_get(e,Component::TYPE_FLAME_DAMAGE)==nullptr) {
 			entities.component_add(e,Component::TYPE_FLAME_DAMAGE);
@@ -2107,14 +2290,32 @@ public:
 				}
 				entity_remove(e);
 			}
+
+			//XXX make fast (events?)
+			for(Component* comp : e->components) {
+				if(comp->type!=Component::TYPE_AI2) {
+					continue;
+				}
+				CompAI2* ai=(CompAI2*)comp;
+				for(const std::pair<std::string,int>& spawn : ai->death_spawn_ids) {
+					for(int count=0;count<spawn.second;count++) {
+						Entity* s=create_by_id(spawn.first);
+						if(s) {
+							s->pos=e->pos+Utils::rand_vec(-20,20);
+							entity_add(s);
+						}
+					}
+				}
+			}
 		}
 	}
-	void entity_show_on_minimap(Entity* e,Color color) {
+	CompShowOnMinimap* entity_show_on_minimap(Entity* e,Color color) {
 		CompShowOnMinimap* c=(CompShowOnMinimap*)entities.component_add(e,Component::TYPE_SHOW_ON_MINIMAP);
 		c->node.type=Node::TYPE_SOLID;
 		c->node.color=color;
 		c->node.scale=sf::Vector2f(4,4);
 		c->node.origin=sf::Vector2f(2,2);
+		return c;
 	}
 
 	void launch_missiles(int count,sf::Vector2f pos,bool player_side) {
@@ -2431,6 +2632,14 @@ public:
 				float acc=200.0f;
 				sf::Vector2f diff=aim_pos+comp->target_offset-comp->entity->pos;
 				float dist=Utils::dist(diff);
+
+				if(dist>comp->engage_distance) {
+					comp->entity->vel.x=0;
+					comp->entity->vel.y=0;
+					comp->entity->fire_gun[0]=false;
+					continue;
+				}
+
 				diff+=comp->rand_offset*dist*0.3f;
 				sf::Vector2f vel=diff/dist*speed;
 
@@ -2458,6 +2667,93 @@ public:
 				comp->entity->angle=Utils::rad_to_deg(angle);
 				comp->entity->vel=Utils::vec_for_angle(angle,vel);
 			}
+			else if(comp->ai_type==CompAI::AI_AVOIDER) {
+				Entity* target=player;
+
+				if(Utils::vec_length_fast(target->pos-comp->entity->pos)>comp->engage_distance*comp->engage_distance) {
+					continue;
+				}
+				float wanted_dist=300;
+
+				//float dist=Utils::dist(diff);
+				sf::Vector2f wanted_pos=target->pos+Utils::vec_normalize(comp->entity->pos-target->pos)*wanted_dist;
+				sf::Vector2f diff=wanted_pos-comp->entity->pos;
+
+				float speed=150.0f;
+				float acc=200.0f;
+
+				sf::Vector2f vel=Utils::vec_normalize(diff)*speed;
+				comp->entity->vel.x=Utils::num_move_towards(comp->entity->vel.x,vel.x,dt*acc);
+				comp->entity->vel.y=Utils::num_move_towards(comp->entity->vel.y,vel.y,dt*acc);
+			}
+
+		}
+
+
+		for(Component* ccomp : entities.component_list(Component::TYPE_AI2)) {
+			CompAI2* comp=(CompAI2*)ccomp;
+
+			float min_dist=0;
+			Entity* closest_attractor=nullptr;
+
+			for(std::size_t i=0;i<attractors.size();i++) {
+				Entity* attractor=attractors[i];
+
+				if(attractor->player_side!=comp->entity->player_side) {
+					 float dist=Utils::vec_length_fast(attractor->pos-comp->entity->pos);
+					 if(!closest_attractor || dist<min_dist) {
+						 min_dist=dist;
+						 closest_attractor=attractor;
+					 }
+				}
+			}
+			if(closest_attractor) {
+				float speed=150.0f;
+				float acc=200.0f;
+				sf::Vector2f diff=closest_attractor->pos-comp->entity->pos;
+				float dist=Utils::dist(diff);
+				//diff+=dist*0.3f;
+				sf::Vector2f vel=diff/dist*speed;
+				comp->entity->vel.x=Utils::num_move_towards(comp->entity->vel.x,vel.x,dt*acc);
+				comp->entity->vel.y=Utils::num_move_towards(comp->entity->vel.y,vel.y,dt*acc);
+				continue;
+			}
+
+			Entity* target=player;
+
+			if(Utils::vec_length_fast(target->pos-comp->entity->pos)>comp->idle_distance*comp->idle_distance) {
+				continue;
+			}
+
+			for(const CompAI2::AIBehavior& behavior : comp->behaviors) {
+				if(behavior==CompAI2::AI_BEHAVIOR_SAFE_FOLLOW) {
+					float speed=150.0f;
+					float acc=200.0f;
+					float wanted_dist=300;
+					sf::Vector2f wanted_pos=target->pos+Utils::vec_normalize(comp->entity->pos-target->pos)*wanted_dist;
+					sf::Vector2f diff=wanted_pos-comp->entity->pos;
+					sf::Vector2f vel=Utils::vec_normalize(diff)*speed;
+					comp->entity->vel.x=Utils::num_move_towards(comp->entity->vel.x,vel.x,dt*acc);
+					comp->entity->vel.y=Utils::num_move_towards(comp->entity->vel.y,vel.y,dt*acc);
+				}
+				else if(behavior==CompAI2::AI_BEHAVIOR_SPAWN_MINIONS) {
+					if(comp->spawn_ids.empty()) {
+						continue;
+					}
+					comp->spawn_timeout-=dt;
+					if(comp->spawn_timeout>0) {
+						continue;
+					}
+					comp->spawn_timeout=comp->spawn_interval;
+
+					Entity* e=create_by_id(Utils::vector_rand(comp->spawn_ids));
+					if(e) {
+						e->pos=comp->entity->pos;
+						entity_add(e);
+					}
+				}
+			}
+
 
 		}
 
@@ -2696,7 +2992,6 @@ public:
 
 		for(Component* ccomp : entities.component_list(Component::TYPE_GRAVITY_FORCE)) {
 			CompGravityForce* comp=(CompGravityForce*)ccomp;
-
 			if(!comp->enabled) {
 				continue;
 			}
@@ -2709,6 +3004,7 @@ public:
 				sf::Vector2f dir=Utils::vec_for_angle_deg(angle,1);
 				float dist=Utils::rand_range(0,comp->radius);
 				Entity* e=add_decal(decal_graphic,comp->entity->pos+dir*dist);
+				entities.attribute_add(e,Entity::ATTRIBUTE_INTEGRATE_POSITION);
 				e->angle=angle;
 				e->vel=-dir*Utils::lerp(comp->power_center,comp->power_edge,dist/comp->radius);
 			}
@@ -2862,8 +3158,9 @@ public:
 
 		}
 
-		for(Entity* e : entities.entities) {
-
+		//for(Entity* e : entities.entities) {
+		for(Component* comp : entities.component_list(Component::TYPE_DISPLAY)) {
+			Entity* e=comp->entity;
 			e->node_main.pos=e->pos;
 			e->node_main.rotation=e->angle+90;
 		}
@@ -2905,6 +3202,13 @@ public:
 		for(int i=0;i<10;i++) {
 			if(player->tmp_timeout[i]>=0.0) {
 				player->tmp_timeout[i]-=dt;
+			}
+		}
+
+		if(!level_won) {
+			if(entities.attribute_list_entities(Entity::ATTRIBUTE_BOSS).size()==0) {
+				printf("level won!\n");
+				level_won=true;
 			}
 		}
 

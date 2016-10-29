@@ -87,6 +87,8 @@ public:
 	static int rand_range_i(int low,int high) { return low+rand()%(high-low+1); }
 	static float rand_sign() { return (probability(0.5) ? 1 : -1); }
 	static float probability(float x) { return (rand_float()<=x); }
+	static float rand_angle() { return rand_range(0,M_PI*2.0f); }
+	static float rand_angle_deg() { return rand_range(0,360); }
 
 	static sf::Vector2f rand_vec(float min,float max) {
 		return sf::Vector2f(rand_range(min,max),rand_range(min,max));
