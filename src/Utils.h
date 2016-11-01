@@ -54,6 +54,12 @@ public:
 		float dot=v.x*normal.x + v.y*normal.y;
 		return v-normal*2.0f*dot;
 	}
+	static float vec_dot(const sf::Vector2f& v1,const sf::Vector2f& v2) {
+	    return (v1.x*v2.x + v1.y*v2.y);
+	}
+	static float largest_root_of_quadratic_equation(float A,float B,float C){
+	  return (B+std::sqrt(B*B-4*A*C))/(2*A);
+	}
 
 	static float rad_to_deg(float rad) { return rad*(180.0f/M_PI); }
 	static float deg_to_rad(float deg) { return deg*(M_PI/180.0f); }

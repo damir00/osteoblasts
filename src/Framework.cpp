@@ -225,6 +225,8 @@ public:
 		do_run=false;
 		fixed_frame_step=1000.0/60.0;
 		fixed_frame_accumulator=0;
+
+		menu_root.node.dbg_is_root=true;
 	}
 	~Impl() {
 	}

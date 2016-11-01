@@ -1,8 +1,9 @@
 #ifndef _BGA_NODE_H_
 #define _BGA_NODE_H_
 
-#include <memory>
+#include <signal.h>
 
+#include <memory>
 #include <vector>
 #include <string>
 #include <unordered_map>
@@ -131,11 +132,29 @@ public:
 		scale=sf::Vector2f(1,1);
 		rotation=0;
 		color_add.set(0,0,0,0);
+
+		dbg_parent=nullptr;
+		dbg_is_root=false;
 	}
-	virtual ~Node() {}
+	virtual ~Node() {
+		Node* p=dbg_parent;
+		while(p) {
+			if(p->dbg_is_root) {
+				//raise(SIGSEGV);
+				printf("ERROR: unsafe node free!!\n");
+			}
+			p=p->dbg_parent;
+		}
+	}
+
+	Node* dbg_parent;
+	bool dbg_is_root;
 
 	void set_origin_center() {
 		origin=texture.get_size()*0.5f;
+	}
+	void set_origin_text_center_x() {
+		origin=sf::Vector2f(text.getLocalBounds().width*0.5f,0.0f);
 	}
 
 	void add_child(Node* node);

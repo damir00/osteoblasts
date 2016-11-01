@@ -41,20 +41,6 @@ public:
 
 };
 class MenuMainLevelSelect : public Menu {
-	/*
-	class MyMenuSpriteButton : public MenuSpriteButton {
-		Node border[4];
-	public:
-		MyMenuSpriteButton() {
-			border[0].type=Node::TYPE_SOLID;
-			border[0].scale=sf::Vector2f(100,4);
-			border[0].color=Color(1,1,1,1);
-
-			node.add_child(&border[0]);
-		}
-	};
-	*/
-
 	MenuSpriteButton::Ptr add_button(const std::string& texture,float x,float y) {
 		MenuSpriteButton::Ptr btn(new MenuSpriteButton());
 		btn->set_texture(Loader::get_texture(texture));
@@ -65,15 +51,19 @@ class MenuMainLevelSelect : public Menu {
 	MenuSpriteButton* add_level(const std::string& name) {
 		int i=levels.size();
 
-		int padding=10;
+		int padding=20;
 		int b_size=100;
 
-		float x=(960-6*b_size+5*padding)*0.5+(i%6)*(b_size+padding);
-		float y=250+(i/6)*(b_size+padding);
+		float menu_w=960;
+		float buttons_w=(6*b_size+5*padding);
+		float x=(i%6)*(b_size+padding);
+		x=(menu_w-buttons_w)*0.5+x;
+
+		float y=230+(i/6)*(b_size+padding);
 
 		MenuSpriteButton::Ptr btn=add_button("menu/level_select/"+name+".png",x,y);
 
-		btn->resize(sf::Vector2f(100,100));
+		//btn->resize(sf::Vector2f(100,100));
 		btn->action=levels.size();
 
 		MenuSpriteButton* btn_p=btn.get();
@@ -100,7 +90,12 @@ public:
 		btn_back=add_button("menu/exit icon.png",907,487);
 		btn_back->action=100;
 
-		for(int i=0;i<12;i++) {
+		add_level("walrus");
+		add_level("octopuss");
+		add_level("crock");
+		add_level("barn");
+		add_level("luna");
+		for(int i=5;i<12;i++) {
 			add_level("walrus");
 		}
 	}
@@ -115,6 +110,9 @@ public:
 		}
 
 		return true;
+	}
+	void event_resize() override {
+		printf("level select resize %f %f\n",size.x,size.y);
 	}
 };
 
@@ -615,6 +613,12 @@ public:
 		}
 		scale_f=sf::Vector2f(scale,scale);
 
+		/*
+		printf("size %f %f page scale %f %f offset %f %f\n",
+				size.x,size.y,
+				scale_f.x,scale_f.y,
+				offset.x,offset.y);
+		 */
 		for(Menu * page : pages) {
 			page->node.pos=offset;
 			page->node.scale=scale_f;
@@ -658,6 +662,9 @@ public:
 			return true;
 		case MSG_SHIP_SELECT_BACK:
 			select_page(&page_first);
+			return true;
+		case MSG_LEVEL_SELECT_BACK:
+			select_page(&page_ship_select);
 			return true;
 
 		case MSG_SELECT_SHIP_0:

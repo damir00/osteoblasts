@@ -22,26 +22,30 @@ enemies swarm patterns
 weapon help text
 level select menu
 laser
+compai2 safe_distance rand offset
+compshape immune to terrain, collisions
+remove CompDisplay/Shape/Health from Entity
+suicide enemy
+walrus boss & level
+octopuss boss & ocean level
+reptiles level & crocodile boss
+farm level & barn boss
+player health
+ship shining effect
 
-walrus
+
+melee slash
 
 hook
 electricity
-melee slash
 grappling hook
 stun blast
 rotating blades
 electric blades
 
-ship shining effect
-
 enemies warp in
 
-player health
-
 weapons cooloff
-
-remove CompDisplay/Shape/Health from Entity
 
 hud
 get rid of 90deg graphics-physics offset

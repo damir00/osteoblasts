@@ -22,6 +22,51 @@
 
 //utils
 
+
+class ProgressBar : public Menu {
+	void update() {
+		frame[0].scale=sf::Vector2f(size.x,border);
+		frame[2].scale=sf::Vector2f(size.x,border);
+		frame[1].scale=sf::Vector2f(border,size.y);
+		frame[3].scale=sf::Vector2f(border,size.y);
+
+		frame[1].pos=sf::Vector2f(size.x-border,0);
+		frame[2].pos=sf::Vector2f(0,size.y-border);
+
+		fill.scale=sf::Vector2f(Utils::clamp(0,size.x,size.x*progress),size.y);
+	}
+
+	float border;
+	float progress;
+
+public:
+	std::array<Node,4> frame;
+	Node fill;
+
+	ProgressBar() {
+		border=2.0f;
+		progress=0.0f;
+
+		for(int i=0;i<4;i++) {
+			frame[i].type=Node::TYPE_SOLID;
+			node.add_child(&frame[i]);
+		}
+		fill.type=Node::TYPE_SOLID;
+		node.add_child(&fill);
+	}
+	void set_progress(float _progress) {
+		progress=_progress;
+		update();
+	}
+	void set_border(float _border) {
+		border=_border;
+		update();
+	}
+	void event_resize() override {
+		update();
+	}
+};
+
 class SimpleTimer {
 public:
 	float current;
@@ -158,12 +203,14 @@ public:
 	float anim_time;
 	bool repeat;
 	float speed;
+	float duration_hidden;		//after anim ends, hide it for this duration
 
 	GraphicNode() {
 		anim_time=0;
 		anim_current_frame=0;
 		repeat=false;
 		speed=1.0;
+		duration_hidden=0.0f;
 	}
 	GraphicNode(const Graphic& _graphic) {
 		set_graphic(_graphic);
@@ -188,14 +235,23 @@ public:
 		}
 
 		anim_time+=dt*speed;
+		float total_duration=graphic.animation.duration+duration_hidden;
+
 		if(repeat) {
-			anim_time=fmod(anim_time,graphic.animation.duration);
+			anim_time=fmod(anim_time,total_duration);
 		}
 		else {
 			anim_time=std::min(anim_time,graphic.animation.duration-0.001f);
 		}
 
-		update_frame();
+		if(anim_time>graphic.animation.duration) {
+			//hidden
+			visible=false;
+		}
+		else {
+			visible=true;
+			update_frame();
+		}
 	}
 	typedef std::unique_ptr<GraphicNode> Ptr;
 };
@@ -233,7 +289,9 @@ public:
 		TYPE_SHOW_ON_MINIMAP,
 		TYPE_GRAVITY_FORCE,
 		TYPE_SHIELD,
-		TYPE_HAMMER
+		TYPE_HAMMER,
+		TYPE_SPLATTER,
+		TYPE_SPAWN_PIECES
 	};
 	enum Event {
 		EVENT_FRAME,
@@ -269,20 +327,26 @@ public:
 
 	uint8_t collision_group;
 	uint8_t collision_mask;
-	bool bounce;
+	bool bounce;			//bounce off entities
+	bool terrain_bounce;
 
 	Quad bbox;
 	bool enabled;
 
 	float hit_damage;	//how much damage is done to the colliding entity
+	float take_damage_terrain_mult;
+
+	Texture hit_splatter;
 
 	CompShape() {
 		collision_group=1;
 		collision_mask=0xff;
 		enabled=true;
 		bounce=false;
+		terrain_bounce=false;
 
 		hit_damage=10;
+		take_damage_terrain_mult=1.0f;
 	}
 
 	void add_quad_center(sf::Vector2f size) {
@@ -362,6 +426,8 @@ public:
 
 	EntityRef* laser_entity;
 	GraphicNode* laser_node;
+
+	std::vector<Texture> splatter_textures;
 
 	CompGun() {
 		//fire=false;
@@ -473,16 +539,31 @@ public:
 	std::vector<std::string> spawn_ids;
 	float spawn_interval;
 	float spawn_timeout;
+	GraphicNode* spawn_node;	//animates node on spawn (ie crock boss mouth opening)
+	sf::Vector2f spawn_vel;
+	sf::Vector2f spawn_pos;
+	float spawn_angle;
+
+	sf::Vector2f rand_offset;	//normalized [-1,1]
 
 	std::vector<AIBehavior> behaviors;
 
 	std::vector<std::pair<std::string,int> > death_spawn_ids;
+
+	SimpleTimer shoot_timer;
+	SimpleTimer shoot_idle_timer;
 
 	CompAI2() {
 		idle_distance=600.0f;
 		safe_follow_distance=300.0f;
 		spawn_interval=3;
 		spawn_timeout=0;
+		spawn_node=nullptr;
+		spawn_angle=270;
+		rand_offset=Utils::rand_vec(-1,1);
+
+		shoot_timer.reset(1.0);
+		shoot_idle_timer.reset(3.0);
 	}
 };
 
@@ -573,6 +654,38 @@ public:
 	CompHammer() {
 		enabled=false;
 	}
+};
+class CompSplatter : public Component {
+public:
+	Node splatter_node;
+	std::vector<Node::Ptr> nodes;
+	float anim;
+	float speed;
+	CompSplatter() {
+		anim=0;
+		speed=1.0;
+	}
+	Node* add_texture(const Texture& tex) {
+		Node* n=new Node();
+		n->texture=tex;
+		splatter_node.add_child(n);
+		nodes.push_back(Node::Ptr(n));
+		return n;
+	}
+	void set_duration(float duration) {
+		speed=1.0f/duration;
+	}
+};
+class CompSpawnPieces : public Component {
+public:
+	class Piece {
+	public:
+		sf::Vector2f pos;
+		sf::Vector2f map_size;
+		sf::Vector2f map_pos;
+	};
+	Texture texture;
+	std::vector<Piece> pieces;
 };
 
 class Entity {
@@ -701,6 +814,12 @@ class EntityManager {
 		}
 		else if(type==Component::TYPE_HEALTH) {
 			c=new CompHealth();
+		}
+		else if(type==Component::TYPE_SPLATTER) {
+			c=new CompSplatter();
+		}
+		else if(type==Component::TYPE_SPAWN_PIECES) {
+			c=new CompSpawnPieces();
 		}
 		else {
 			printf("WARN: comp type %d not handled\n",type);
@@ -1231,13 +1350,17 @@ class Game : public Menu {
 	//WaveManager wave_manager;
 	//std::vector<SwarmManager*> swarms;
 
-	Node help_text_node;
+	Node node_help_text;
+	Node node_level_complete;
 
 	Minimap minimap;
 
 	SpaceBackground background;
 	Node node_game;
 	Node node_ships;
+	Node node_splatter;
+
+	ProgressBar player_health;
 
 	Terrain terrain;
 
@@ -1295,6 +1418,10 @@ public:
 			CompShield* comp=(CompShield*)c;
 			comp->entity->node_main.add_child(&comp->node);
 		}
+		else if(c->type==Component::TYPE_SPLATTER) {
+			CompSplatter* splatter=(CompSplatter*)c;
+			node_splatter.add_child(&splatter->splatter_node);
+		}
 	}
 	void component_removed(Component* c) {
 
@@ -1306,6 +1433,17 @@ public:
 			CompShield* comp=(CompShield*)c;
 			comp->entity->node_main.remove_child(&comp->node);
 		}
+		else if(c->type==Component::TYPE_SPLATTER) {
+			CompSplatter* splatter=(CompSplatter*)c;
+			node_splatter.remove_child(&splatter->splatter_node);
+		}
+		else if(c->type==Component::TYPE_GUN) {
+			CompGun* gun=(CompGun*)c;
+			if(gun->laser_entity) {
+				entity_remove(gun->laser_entity->entity);
+				//entities.entity_ref_delete(gun->laser_entity);
+			}
+		}
 
 	}
 
@@ -1315,6 +1453,13 @@ public:
 		entity_create_map["enemy/walrus/boss_split1"]=std::bind(&Game::create_walrus_boss,this,1);
 		entity_create_map["enemy/walrus/boss_split2"]=std::bind(&Game::create_walrus_boss,this,2);
 		entity_create_map["enemy/walrus/boss_split3"]=std::bind(&Game::create_walrus_boss,this,3);
+
+		entity_create_map["enemy/ocean/random"]=std::bind(&Game::create_ocean_random,this);
+		entity_create_map["enemy/reptile/random"]=std::bind(&Game::create_reptile_random,this);
+		entity_create_map["enemy/farm/random"]=std::bind(&Game::create_farm_random,this);
+
+		entity_create_map["enemy/fish/rocket"]=std::bind(&Game::create_fish_rocket,this);
+		entity_create_map["enemy/fish/minion"]=std::bind(&Game::create_fish_minion,this);
 
 		player_ship=0;
 		selected_level=0;
@@ -1334,15 +1479,28 @@ public:
 		node.add_child(&background);
 		node.add_child(&node_game);
 		node.add_child(&minimap);
-		node.add_child(&help_text_node);
+		node.add_child(&node_help_text);
+		node.add_child(&node_level_complete);
+		add_child(&player_health);
+		node.add_child(&node_splatter);
 		node_game.add_child(&terrain);
 		node_game.add_child(&node_ships);
 
+		player_health.set_border(3);
+		player_health.resize(sf::Vector2f(300,20));
 
-		help_text_node.type=Node::TYPE_TEXT;
-		help_text_node.text.setFont(*Loader::get_menu_font());
-		help_text_node.text.setCharacterSize(22);
-		help_text_node.pos=sf::Vector2f(10,10);
+
+		node_help_text.type=Node::TYPE_TEXT;
+		node_help_text.text.setFont(*Loader::get_menu_font());
+		node_help_text.text.setCharacterSize(22);
+		node_help_text.pos=sf::Vector2f(10,10);
+
+		node_level_complete.type=Node::TYPE_TEXT;
+		node_level_complete.text.setFont(*Loader::get_menu_font());
+		node_level_complete.text.setCharacterSize(25);
+		node_level_complete.pos=sf::Vector2f(10,10);
+		node_level_complete.text.setString("LEVEL COMPLETE");
+		node_level_complete.set_origin_text_center_x();
 
 
 		//populate some assets
@@ -1527,6 +1685,8 @@ public:
 		level_won=false;
 		use_shader_damage=false;
 
+		node_level_complete.visible=false;
+
 		//cleanup
 		for(Entity* e : entities.entities) {
 			entity_remove(e);
@@ -1554,31 +1714,74 @@ public:
 			player=create_player_fighter();
 		}
 
-		help_text_node.text.setString(help_texts[player_ship]);
-
+		node_help_text.text.setString(help_texts[player_ship]);
 
 		entity_add(player);
 
-		sf::Vector2f boss_pos=Utils::vec_for_angle(Utils::rand_angle(),200/*2000*/);
+		sf::Vector2f boss_pos=Utils::vec_for_angle(Utils::rand_angle(),3000);
 
-		Entity* boss=create_walrus_boss(0);
-		boss->pos=boss_pos;
-		entity_add(boss);
+		if(selected_level==1) {	//octopuss
+			//boss_pos=sf::Vector2f(-200,0);
 
-		/*
-		for(int i=0;i<100;i++) {
-			std::stringstream ss;
-			ss<<"enemies/Walrus/walrus"<<Utils::rand_range_i(1,8)<<".png";
-			Graphic g(Loader::get_texture(ss.str()));
-			Entity* enemy=create_enemy_melee(g);
+			Entity* boss=create_octopuss_boss();
+			boss->pos=boss_pos;
+			entity_add(boss);
 
-			float dist=Easing::inQuad(Utils::rand_range(0.2,1))*2500.0;
-			//float dist=Utils::rand_range(0.2,1.0)*2500.0;
-			enemy->pos=boss_pos+Utils::vec_for_angle(Utils::rand_angle(),dist);
-
-			entity_add(enemy);
+			for(int i=0;i<100;i++) {
+				Entity* enemy=create_ocean_random();
+				float dist=Easing::inQuad(Utils::rand_range(0.2,1))*3200.0;
+				enemy->pos=boss_pos+Utils::vec_for_angle(Utils::rand_angle(),dist);
+				entity_add(enemy);
+			}
 		}
-		*/
+		else if(selected_level==2) {	//crock
+			Entity* boss=create_crock_boss();
+			boss->pos=boss_pos;
+			entity_add(boss);
+			for(int i=0;i<100;i++) {
+				Entity* enemy=create_reptile_random();
+				float dist=Easing::inQuad(Utils::rand_range(0.2,1))*3200.0;
+				enemy->pos=boss_pos+Utils::vec_for_angle(Utils::rand_angle(),dist);
+				entity_add(enemy);
+			}
+		}
+		else if(selected_level==3) {	//farm/barn
+			Entity* boss=create_barn_boss();
+			boss->pos=boss_pos;
+			entity_add(boss);
+
+			for(int i=0;i<100;i++) {
+				Entity* enemy=create_farm_random();
+				float dist=Easing::inQuad(Utils::rand_range(0.2,1))*3200.0;
+				enemy->pos=boss_pos+Utils::vec_for_angle(Utils::rand_angle(),dist);
+				entity_add(enemy);
+			}
+		}
+		else if(selected_level==4) {	//fish/luna
+			Entity* boss=create_luna_boss();
+			boss->pos=boss_pos;
+			entity_add(boss);
+			for(int i=0;i<100;i++) {
+				Entity* enemy=create_fish_random();
+				float dist=Easing::inQuad(Utils::rand_range(0.2,1))*3200.0;
+				enemy->pos=boss_pos+Utils::vec_for_angle(Utils::rand_angle(),dist);
+				entity_add(enemy);
+			}
+		}
+		else {
+			Entity* boss=create_walrus_boss(0);
+			boss->pos=boss_pos;
+			entity_add(boss);
+
+			for(int i=0;i<100;i++) {
+				Entity* enemy=create_walrus_random();
+				float dist=Easing::inQuad(Utils::rand_range(0.2,1))*3200.0;
+				enemy->pos=boss_pos+Utils::vec_for_angle(Utils::rand_angle(),dist);
+				entity_add(enemy);
+			}
+		}
+
+
 
 		/*
 		for(int i=0;i<100;i++) {
@@ -1666,6 +1869,7 @@ public:
 				CompShape::COLLISION_GROUP_ENEMY_BULLET|
 				CompShape::COLLISION_GROUP_TERRAIN);
 		player->comp_shape->bounce=true;
+		player->comp_shape->terrain_bounce=true;
 
 		entities.component_add(player,Component::TYPE_DISPLAY);
 		entities.attribute_add(player,Entity::ATTRIBUTE_PLAYER_CONTROL);
@@ -1740,6 +1944,12 @@ public:
 
 		Texture tex=Loader::get_texture("player ships/Hammership/ship1.png");
 		player->comp_display->add_texture_center(tex);
+
+		GraphicNode* node_shining=player->comp_display->add_graphic_center(
+				(Animation(Loader::get_texture("player ships/Hammership/shinning.png"),82,90,0.05)));
+		node_shining->repeat=true;
+		node_shining->duration_hidden=3.0f;
+
 		player->comp_shape->add_quad_center(tex.get_size());
 
 		//shotguns
@@ -1933,9 +2143,8 @@ public:
 				CompShape::COLLISION_GROUP_TERRAIN*/);
 
 		k->comp_shape->bounce=true;
-
+		k->comp_shape->terrain_bounce=true;
 		k->player_side=true;
-
 
 		CompShowDamage* c_show_damage=(CompShowDamage*)entities.component_add(k,Component::TYPE_SHOW_DAMAGE);
 		c_show_damage->damage_type=CompShowDamage::DAMAGE_TYPE_BLINK;
@@ -1988,9 +2197,10 @@ public:
 					CompShape::COLLISION_GROUP_ENEMY);
 		}
 		else {
-			missile->comp_shape->collision_group=CompShape::COLLISION_GROUP_ENEMY_BULLET;
+			missile->comp_shape->collision_group=CompShape::COLLISION_GROUP_ENEMY;
 			missile->comp_shape->collision_mask=(CompShape::COLLISION_GROUP_TERRAIN|
-					CompShape::COLLISION_GROUP_PLAYER);
+					CompShape::COLLISION_GROUP_PLAYER |
+					CompShape::COLLISION_GROUP_PLAYER_BULLET);
 		}
 		missile->player_side=player_side;
 
@@ -2013,12 +2223,12 @@ public:
 		return missile;
 	}
 
-	Entity* create_enemy(const Graphic& g) {
-		float scale=2.0;
+	Entity* create_enemy(const Graphic& g,float scale=2.0) {
 
 		Entity* k=entities.entity_create();
 		entities.component_add(k,Component::TYPE_DISPLAY);
-		k->comp_display->add_graphic_center(g,scale);
+		GraphicNode* main_node=k->comp_display->add_graphic_center(g,scale);
+		main_node->repeat=true;
 
 		entities.component_add(k,Component::TYPE_SHAPE);
 		k->comp_shape->add_quad_center(g.get_texture().get_size()*scale);
@@ -2030,6 +2240,7 @@ public:
 				CompShape::COLLISION_GROUP_PLAYER|
 				CompShape::COLLISION_GROUP_PLAYER_BULLET);
 		k->comp_shape->bounce=true;
+		k->comp_shape->terrain_bounce=true;
 
 		entities.attribute_add(k,Entity::ATTRIBUTE_INTEGRATE_POSITION);
 
@@ -2041,16 +2252,17 @@ public:
 		entity_add_health(k,100);
 		return k;
 	}
-	Entity* create_enemy_suicide(const Graphic& g) {
-		Entity* k=create_enemy(g);
-		CompAI* ai=(CompAI*)entities.component_add(k,Component::TYPE_AI);
-		ai->ai_type=CompAI::AI_SUICIDE;
-		return k;
-	}
 	Entity* create_enemy_melee(const Graphic& g) {
 		Entity* k=create_enemy(g);
 		CompAI* ai=(CompAI*)entities.component_add(k,Component::TYPE_AI);
 		ai->ai_type=CompAI::AI_MELEE;
+		return k;
+	}
+	Entity* create_enemy_suicide(const Graphic& g) {
+		Entity* k=create_enemy_melee(g);
+		k->tmp_damage=100.0f;
+		k->comp_health->reset(5.0f);
+		k->comp_shape->take_damage_terrain_mult=0.01;
 		return k;
 	}
 	Entity* create_enemy_shooter(const Graphic& g,int dir/*0=up,1=down,2=side*/) {
@@ -2117,7 +2329,12 @@ public:
 		ai->behaviors.push_back(CompAI2::AI_BEHAVIOR_SAFE_FOLLOW);
 		ai->behaviors.push_back(CompAI2::AI_BEHAVIOR_SPAWN_MINIONS);
 		ai->spawn_ids.push_back("enemy/walrus/random");
+		ai->spawn_timeout=Utils::rand_range(1.5,3);
 		ai->spawn_interval=3.0/walrus_power;
+		ai->safe_follow_distance=Utils::rand_range(280,320);
+
+		e->comp_shape->terrain_bounce=false;
+		e->comp_shape->take_damage_terrain_mult=0.0f;
 
 		if(split_level==0) {
 			ai->death_spawn_ids.push_back(std::make_pair("enemy/walrus/boss_split1",2));
@@ -2133,7 +2350,6 @@ public:
 
 		return e;
 	}
-
 	Entity* create_walrus_random() {
 		std::stringstream ss;
 		ss<<"enemies/Walrus/walrus"<<Utils::rand_range_i(1,8)<<".png";
@@ -2141,6 +2357,395 @@ public:
 		return create_enemy_melee(g);
 	}
 
+	Entity* create_octopuss_boss() {
+		Graphic graphic(Animation(Loader::get_texture("enemies/Ocean/boss/octopuss.png"),99,126,0.1));
+		Entity* e=create_enemy(graphic);
+
+		e->comp_health->reset(1000.0f);
+		e->comp_shape->terrain_bounce=false;
+		e->comp_shape->take_damage_terrain_mult=0.0f;
+		entities.attribute_add(e,Entity::ATTRIBUTE_BOSS);
+
+		CompAI2* ai=(CompAI2*)entities.component_add(e,Component::TYPE_AI2);
+		ai->behaviors.push_back(CompAI2::AI_BEHAVIOR_SAFE_FOLLOW);
+		ai->behaviors.push_back(CompAI2::AI_BEHAVIOR_SPAWN_MINIONS);
+		ai->behaviors.push_back(CompAI2::AI_BEHAVIOR_AIM_SHOOT);
+		ai->spawn_ids.push_back("enemy/ocean/random");
+		ai->spawn_timeout=3.0;
+		ai->spawn_interval=3.0;
+		ai->safe_follow_distance=300;
+
+		CompGun* gun=(CompGun*)entities.component_add(e,Component::TYPE_GUN);
+		gun->texture=Loader::get_texture("enemies/Ocean/boss/projectile.png");
+		gun->bullet_speed=400;
+		gun->fire_timeout=2.0;
+
+		for(int i=1;i<=8;i++) {
+			std::stringstream ss;
+			ss<<"enemies/Ocean/boss/splashscreen"<<i<<".png";
+			gun->splatter_textures.push_back(Loader::get_texture(ss.str()));
+		}
+
+		return e;
+	}
+	Entity* create_ocean_random() {
+		static std::vector<std::tuple<int,std::string,int>> defs;
+		if(defs.empty()) {
+				defs.push_back(std::make_tuple(0,"Melee/ocean1.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/ocean8.png",0));
+				defs.push_back(std::make_tuple(1,"Shooter/ocean4.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/ocean7.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/ocean9.png",2));
+				defs.push_back(std::make_tuple(2,"Suicide/ocean2.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/ocean3.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/ocean5.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/ocean6.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/ocean10.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/ocean11.png",0));
+		}
+		return create_from_defs(defs,"enemies/Ocean/");
+
+		/*
+		int type=Utils::rand_range_i(1,11);
+		if(type==1) {
+			return create_enemy_melee(Graphic(Loader::get_texture("enemies/Ocean/Melee/ocean1.png")));
+		}
+		else if(type==2) {
+			return create_enemy_melee(Graphic(Loader::get_texture("enemies/Ocean/Melee/ocean8.png")));
+		}
+		else if(type==3) {
+			return create_enemy_shooter(Graphic(Loader::get_texture("enemies/Ocean/Shooter/ocean4.png")),1);
+		}
+		else if(type==4) {
+			return create_enemy_shooter(Graphic(Loader::get_texture("enemies/Ocean/Shooter/ocean7.png")),1);
+		}
+		else if(type==5) {
+			return create_enemy_shooter(Graphic(Loader::get_texture("enemies/Ocean/Shooter/ocean9.png")),2);
+		}
+		else if(type==6) {
+			return create_enemy_suicide(Graphic(Loader::get_texture("enemies/Ocean/Suicide/ocean2.png")));
+		}
+		else if(type==7) {
+			return create_enemy_suicide(Graphic(Loader::get_texture("enemies/Ocean/Suicide/ocean3.png")));
+		}
+		else if(type==8) {
+			return create_enemy_suicide(Graphic(Loader::get_texture("enemies/Ocean/Suicide/ocean5.png")));
+		}
+		else if(type==9) {
+			return create_enemy_suicide(Graphic(Loader::get_texture("enemies/Ocean/Suicide/ocean6.png")));
+		}
+		else if(type==10) {
+			return create_enemy_suicide(Graphic(Loader::get_texture("enemies/Ocean/Suicide/ocean10.png")));
+		}
+		else {
+			return create_enemy_suicide(Graphic(Loader::get_texture("enemies/Ocean/Suicide/ocean11.png")));
+		}
+		*/
+	}
+
+	Entity* create_crock_boss() {
+
+		Graphic graphic(Animation(Loader::get_texture("enemies/Reptiles/boss/crock.png"),66,119,0.5));
+		Entity* e=create_enemy(graphic);
+
+		GraphicNode::Ptr& node=e->comp_display->nodes[0];
+		node->speed=0;
+
+		e->comp_health->reset(1000.0f);
+		e->comp_shape->terrain_bounce=false;
+		e->comp_shape->take_damage_terrain_mult=0.0f;
+		entities.attribute_add(e,Entity::ATTRIBUTE_BOSS);
+
+		CompAI2* ai=(CompAI2*)entities.component_add(e,Component::TYPE_AI2);
+		ai->behaviors.push_back(CompAI2::AI_BEHAVIOR_SAFE_FOLLOW);
+		ai->behaviors.push_back(CompAI2::AI_BEHAVIOR_SHOOT);
+		ai->behaviors.push_back(CompAI2::AI_BEHAVIOR_SPAWN_MINIONS);
+		ai->spawn_ids.push_back("enemy/reptile/random");
+		ai->spawn_timeout=3.0;
+		ai->spawn_interval=3.0;
+		ai->safe_follow_distance=300;
+		ai->spawn_node=e->comp_display->nodes[0].get();
+		ai->spawn_node->speed=0;
+		ai->spawn_vel=sf::Vector2f(0,300);
+
+		for(int i=0;i<2;i++) {
+			CompGun* gun=(CompGun*)entities.component_add(e,Component::TYPE_GUN);
+			gun->texture=Loader::get_texture("general assets/beam.png");
+			gun->gun_type=CompGun::GUN_LASER;
+			gun->angle=180;
+			gun->pos=sf::Vector2f(-12+i*24,-48);
+		}
+
+		return e;
+	}
+	Entity* create_reptile_random() {
+		static std::vector<std::tuple<int,std::string,int>> defs;
+		if(defs.empty()) {
+				defs.push_back(std::make_tuple(0,"Melee/reptile1.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/reptile2.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/reptile3.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/reptile4.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/reptile5.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/reptile6.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/reptile7.png",0));
+		}
+		return create_from_defs(defs,"enemies/Reptiles/");
+	}
+
+
+	Entity* create_barn_boss() {
+		Graphic graphic(Animation(Loader::get_texture("enemies/Farm/boss/barn.png"),62,114,0.1));
+		Entity* e=create_enemy(graphic);
+
+		GraphicNode::Ptr& node=e->comp_display->nodes[0];
+		node->speed=0;
+
+		e->comp_display->nodes[0]->pos=-sf::Vector2f(62,92);
+
+		e->comp_health->reset(1000.0f);
+		e->comp_shape->quads[0]=Quad(-sf::Vector2f(62,92),sf::Vector2f(62,92));
+		e->comp_shape->terrain_bounce=false;
+		e->comp_shape->take_damage_terrain_mult=0.0f;
+		entities.attribute_add(e,Entity::ATTRIBUTE_BOSS);
+
+		CompAI2* ai=(CompAI2*)entities.component_add(e,Component::TYPE_AI2);
+		ai->behaviors.push_back(CompAI2::AI_BEHAVIOR_SAFE_FOLLOW);
+		ai->behaviors.push_back(CompAI2::AI_BEHAVIOR_SPAWN_MINIONS);
+		ai->behaviors.push_back(CompAI2::AI_BEHAVIOR_AIM_SHOOT);
+		ai->spawn_ids.push_back("enemy/farm/random");
+		ai->spawn_timeout=3.0;
+		ai->spawn_interval=3.0;
+		ai->safe_follow_distance=300;
+
+		ai->spawn_node=e->comp_display->nodes[0].get();
+		ai->spawn_node->speed=0;
+		ai->spawn_vel=sf::Vector2f(0,300);
+
+		CompGun* gun=(CompGun*)entities.component_add(e,Component::TYPE_GUN);
+		gun->texture=Loader::get_texture("enemies/Farm/boss/egg.png");
+		gun->bullet_speed=400;
+		gun->fire_timeout=2.0;
+		gun->splatter_textures.push_back(Loader::get_texture("enemies/Farm/boss/eggsplash.png"));
+
+		return e;
+	}
+	Entity* create_farm_random() {
+		static std::vector<std::tuple<int,std::string,int>> defs;
+		if(defs.empty()) {
+				defs.push_back(std::make_tuple(1,"Shooter/cow1.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/cow2.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/cow3.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/cow4.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/cow5.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/cow6.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/cow7.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/cow8.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/pig1.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/pig2.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/pig3.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/pig4.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/pig5.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/pig6.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/pig7.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/pig8.png",1));
+				defs.push_back(std::make_tuple(2,"Suicide/chicken1.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/chicken2.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/chicken3.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/chicken4.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/chicken5.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/chicken6.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/chicken7.png",0));
+					defs.push_back(std::make_tuple(2,"Suicide/chicken8.png",0));
+		}
+		return create_from_defs(defs,"enemies/Farm/");
+	}
+
+	Entity* create_luna_boss() {
+		Graphic graphic(Animation(Loader::get_texture("enemies/Fish/boss/rockethatch.png"),60,57,0.5));
+		Entity* e=create_enemy(graphic);
+
+		GraphicNode::Ptr& node=e->comp_display->nodes[0];
+		node->speed=0;
+
+		e->comp_health->reset(1000.0f);
+		e->comp_shape->terrain_bounce=false;
+		e->comp_shape->take_damage_terrain_mult=0.0f;
+		entities.attribute_add(e,Entity::ATTRIBUTE_BOSS);
+
+		CompAI2* ai=(CompAI2*)entities.component_add(e,Component::TYPE_AI2);
+		ai->behaviors.push_back(CompAI2::AI_BEHAVIOR_SAFE_FOLLOW);
+		ai->behaviors.push_back(CompAI2::AI_BEHAVIOR_SHOOT);
+		ai->behaviors.push_back(CompAI2::AI_BEHAVIOR_SPAWN_MINIONS);
+		ai->spawn_ids.push_back("enemy/fish/rocket");
+		ai->spawn_timeout=3.0;
+		ai->spawn_interval=3.0;
+		ai->safe_follow_distance=300;
+		ai->spawn_node=e->comp_display->nodes[0].get();
+		ai->spawn_node->speed=0;
+		ai->spawn_vel=sf::Vector2f(0,300);
+		ai->spawn_pos=sf::Vector2f(12,4);
+		ai->spawn_angle=90;
+
+		CompAI2* ai2=(CompAI2*)entities.component_add(e,Component::TYPE_AI2);
+		ai2->behaviors.push_back(CompAI2::AI_BEHAVIOR_SPAWN_MINIONS);
+		ai2->spawn_ids.push_back("enemy/fish/minion");
+		ai2->spawn_timeout=2.0;
+		ai2->spawn_interval=4.0;
+		ai2->spawn_pos=sf::Vector2f(0,52);
+		ai2->spawn_vel=sf::Vector2f(0,300);
+
+
+		CompGun* gun=(CompGun*)entities.component_add(e,Component::TYPE_GUN);
+		gun->texture=Loader::get_texture("general assets/beam.png");
+		gun->gun_type=CompGun::GUN_LASER;
+		gun->angle=180;
+		gun->pos=sf::Vector2f(-10,32);
+
+		CompSpawnPieces* pieces=(CompSpawnPieces*)entities.component_add(e,Component::TYPE_SPAWN_PIECES);
+		pieces->texture=Loader::get_texture("enemies/Fish/boss/pieces.png");
+		const int piece_map[][6]={
+				{35,11,12,30,0,0},
+				{14,0,36,13,12,0},
+				{51,8,3,26,48,0},
+				{47,10,5,28,51,0},
+				{54,5,6,25,56,0},
+				{17,11,8,4,0,30},
+				{0,5,7,19,8,30},
+				{3,9,7,24,15,30},
+				{8,5,6,32,22,30},
+				{11,12,6,31,28,30},
+				{13,14,7,34,34,30},
+				{15,15,20,42,41,30},
+				{35,34,14,23,0,72},
+				{25,11,12,30,14,72},
+				{31,25,9,11,26,72}
+		};
+		for(int i=0;i<15;i++) {
+			CompSpawnPieces::Piece piece;
+			piece.pos.x=piece_map[i][0];
+			piece.pos.y=piece_map[i][1];
+			piece.map_size.x=piece_map[i][2];
+			piece.map_size.y=piece_map[i][3];
+			piece.map_pos.x=piece_map[i][4];
+			piece.map_pos.y=piece_map[i][5];
+			pieces->pieces.push_back(std::move(piece));
+		}
+
+		return e;
+	}
+	Entity* create_fish_rocket() {
+		return create_missile(Graphic(Loader::get_texture("enemies/Fish/boss/rocket.png")),player,false);
+	}
+	Entity* create_fish_minion() {
+		return create_enemy_melee(Graphic(Loader::get_texture("enemies/Fish/boss/lunajunior.png")));
+	}
+	Entity* create_fish_random() {
+		static std::vector<std::tuple<int,std::string,int>> defs;
+		if(defs.empty()) {
+				defs.push_back(std::make_tuple(0,"Melee/fish10.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish11.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish12.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish13.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish14.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish15.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish16.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish17.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish18.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish20.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish21.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish22.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish23.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish24.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish25.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish26.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish27.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish28.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish29.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish30.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish31.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish32.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish33.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish34.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish35.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish36.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish37.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish38.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish39.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish3.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish40.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish41.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish42.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish43.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish44.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish45.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish46.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish47.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish48.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish49.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish4.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish5.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish7.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish8.png",0));
+				defs.push_back(std::make_tuple(0,"Melee/fish9.png",0));
+				defs.push_back(std::make_tuple(1,"Shooter/fish50.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/fish51.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/fish52.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/fish53.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/fish54.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/fish55.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/fish56.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/fish57.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/fish58.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/fish59.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/fish60.png",1));
+				defs.push_back(std::make_tuple(1,"Shooter/fish61.png",1));
+				defs.push_back(std::make_tuple(2,"Suicide/fish62.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/fish63.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/fish64.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/fish65.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/fish66.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/fish67.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/fish68.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/fish69.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/fish70.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/fish71.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/fish72.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/fish73.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/fish74.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/fish75.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/fish76.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/fish78.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/fish79.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/fish80.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/fish81.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/fish82.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/fish83.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/fish84.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/fish85.png",0));
+				defs.push_back(std::make_tuple(2,"Suicide/fish86.png",0));
+		}
+		return create_from_defs(defs,"enemies/Fish/");
+	}
+
+
+
+
+	Entity* create_from_defs(const std::vector<std::tuple<int,std::string,int>>& defs,const std::string prepend) {
+		if(defs.empty()) {
+			return nullptr;
+		}
+		const std::tuple<int,std::string,int> selected=Utils::vector_rand(defs);
+		std::string tex_filename=prepend+std::get<1>(selected);
+		if(std::get<0>(selected)==0) {
+			return create_enemy_melee(Graphic(Loader::get_texture(tex_filename)));
+		}
+		else if(std::get<0>(selected)==1) {
+			return create_enemy_shooter(Graphic(Loader::get_texture(tex_filename)),std::get<2>(selected));
+		}
+		else {
+			return create_enemy_suicide(Graphic(Loader::get_texture(tex_filename)));
+		}
+	}
 	Entity* create_by_id(const std::string& id) {
 		if(entity_create_map.count(id)>0) {
 			return entity_create_map[id]();
@@ -2149,6 +2754,13 @@ public:
 		return nullptr;
 	}
 
+	sf::Vector2f target_lead(sf::Vector2f target_pos,sf::Vector2f target_vel,float bullet_vel) {
+		  float a = bullet_vel*bullet_vel - Utils::vec_dot(target_vel,target_vel);
+		  float b = -2.0f*Utils::vec_dot(target_vel,target_pos);
+		  float c = -Utils::vec_dot(target_pos,target_pos);
+		  sf::Vector2f p=target_pos+Utils::largest_root_of_quadratic_equation(a,b,c)*target_vel;
+		  return Utils::vec_normalize(p)*bullet_vel;
+	}
 
 	/*
 	void add_swarm(int count,int pattern) {
@@ -2177,22 +2789,24 @@ public:
 	}
 	*/
 
-	void add_big_explosion(sf::Vector2f pos) {
+	void add_big_explosion(sf::Vector2f pos,bool player_side) {
 		float radius=150.0f;
 		float radius2=radius*radius;
 
-
+		/*
 		for(int i=0;i<120;i++) {
 			add_decal(Utils::vector_rand(graphic_explosion),
 					pos+Utils::vec_for_angle_deg(Utils::rand_range(0,360),Utils::rand_range(0,radius)));
 		}
+		*/
+		add_decal_explosion(pos,1.0);
 
 		sf::Vector2f d_size=sf::Vector2f(1,1)*radius*1.5f;
 		sf::Vector2f d_pos=pos-d_size*0.5f;
 		terrain.damage_area(sf::FloatRect(d_pos,d_size),100);
 
 		for(Component* comp : entities.component_list(Component::TYPE_SHAPE)) {
-			if(((CompShape*)comp)->enabled && !comp->entity->player_side) {
+			if(((CompShape*)comp)->enabled && comp->entity->player_side!=player_side) {
 				float dist=Utils::vec_length_fast(comp->entity->pos-pos);
 
 				if(dist<radius2) {
@@ -2202,6 +2816,25 @@ public:
 		}
 
 	}
+
+	Entity* add_splatter(const Texture& texture) {
+		float duration=6.0;
+		float scale=4.0f;
+
+		Entity* e=entities.entity_create();
+		CompSplatter* splatter=(CompSplatter*)entities.component_add(e,Component::TYPE_SPLATTER);
+		Node* node=splatter->add_texture(texture);
+		node->scale=sf::Vector2f(scale,scale);
+		splatter->set_duration(duration);
+
+		e->pos=sf::Vector2f(Utils::rand_range(0,size.x-texture.get_size().x*scale),Utils::rand_range(0,size.y-texture.get_size().y*scale));
+
+		entity_add_timeout(e,CompTimeout::ACTION_REMOVE_ENTITY,duration);
+		entity_add(e);
+
+		return e;
+	}
+
 	Entity* add_decal(const Graphic& grap,sf::Vector2f pos) {
 		Entity* e=entities.entity_create();
 		entities.component_add(e,Component::TYPE_DISPLAY);
@@ -2223,14 +2856,32 @@ public:
 		}
 		return add_decal(Utils::vector_rand(grap),pos);
 	}
-
-	//"events"
-	void entity_damage(Entity* e,float dmg) {
-
-		if(!e->comp_health) {
+	void add_decal_explosion(sf::Vector2f pos,float size) {	//size 0-1
+		if(size<=0.1) {
+			add_decal(graphic_explosion,pos);
 			return;
 		}
 
+		int count=std::min(10,(int)(size*10));
+		for(int i=0;i<count;i++) {
+			Entity* e=entities.entity_create();
+			entity_add_timeout(e,CompTimeout::ACTION_REMOVE_ENTITY,Utils::rand_range(0.5,0.8)*size);
+			e->pos=pos;
+			e->vel=Utils::vec_for_angle(Utils::rand_angle(),Utils::rand_range(250,350));
+			entities.component_add(e,Component::TYPE_FLAME_DAMAGE);
+			entities.attribute_add(e,Entity::ATTRIBUTE_INTEGRATE_POSITION);
+			entity_add(e);
+		}
+	}
+
+	//"events"
+	void entity_damage(Entity* e,float dmg) {
+		if(dmg<=0.0f) {
+			return;
+		}
+		if(!e->comp_health) {
+			return;
+		}
 		if(entities.component_get(e,Component::TYPE_SHIELD)) {
 			return;
 		}
@@ -2257,7 +2908,6 @@ public:
 			}
 			CompShowDamage* damage=(CompShowDamage*)comp;
 			if(damage->damage_type==CompShowDamage::DAMAGE_TYPE_ANIMATION_PROGRESS) {
-				//printf("FLOP DAMGE %f\n",e->comp_health->health/e->comp_health->health_max);
 				if(damage->animation_progress_node) {
 					damage->animation_progress_node->set_animation_progress(1.0f-e->comp_health->health/e->comp_health->health_max);
 				}
@@ -2283,10 +2933,22 @@ public:
 
 			if(entities.attribute_has(e,Entity::ATTRIBUTE_REMOVE_ON_DEATH)) {
 				if(e->tmp_damage>90.0) {
-					add_big_explosion(e->pos);
+					add_big_explosion(e->pos,e->player_side);
 				}
 				else {
-					add_decal(graphic_explosion,e->pos);
+
+					float shape_area=0;
+					if(e->comp_shape) {
+						for(const Quad& quad : e->comp_shape->quads) {
+							sf::Vector2f size=quad.size();
+							shape_area+=size.x*size.y;
+						}
+					}
+
+					//printf("area %f\n",shape_area);
+
+					add_decal_explosion(e->pos,shape_area*0.0001f);
+					//add_decal(graphic_explosion,e->pos);
 				}
 				entity_remove(e);
 			}
@@ -2307,6 +2969,46 @@ public:
 					}
 				}
 			}
+
+			for(Component* comp : e->components) {
+				if(comp->type!=Component::TYPE_SPAWN_PIECES) {
+					continue;
+				}
+				CompSpawnPieces* pieces=(CompSpawnPieces*)comp;
+				for(const CompSpawnPieces::Piece& piece : pieces->pieces) {
+					float scale=2.0f;
+
+					sf::Vector2f e_size=e->comp_shape->quads[0].size();
+
+					Entity* pe=entities.entity_create();
+					Texture t=pieces->texture;
+
+					t.rect=sf::IntRect(piece.map_pos.x,piece.map_pos.y,piece.map_size.x,piece.map_size.y);
+					entities.component_add(pe,Component::TYPE_DISPLAY);
+					pe->comp_display->add_texture_center(t,scale);
+
+					entities.component_add(pe,Component::TYPE_SHAPE);
+					pe->comp_shape->add_quad_center(t.get_size()*scale);
+
+					pe->comp_shape->collision_group=CompShape::COLLISION_GROUP_ENEMY;
+					pe->comp_shape->collision_mask=CompShape::COLLISION_GROUP_TERRAIN |
+							CompShape::COLLISION_GROUP_PLAYER_BULLET;
+					pe->comp_shape->bounce=true;
+					pe->comp_shape->terrain_bounce=true;
+
+					entity_add_health(pe,5);
+					entities.attribute_add(pe,Entity::ATTRIBUTE_REMOVE_ON_DEATH);
+
+					sf::Vector2f rel_pos=piece.pos*scale-e_size*0.5f;
+					pe->pos=e->pos+rel_pos;
+
+					pe->vel=Utils::vec_normalize(rel_pos)*100.0f;
+					entities.attribute_add(pe,Entity::ATTRIBUTE_INTEGRATE_POSITION);
+					entity_add_timeout(pe,CompTimeout::ACTION_REMOVE_ENTITY,Utils::rand_range(3.0,4.0));
+					entity_add(pe);
+				}
+			}
+
 		}
 	}
 	CompShowOnMinimap* entity_show_on_minimap(Entity* e,Color color) {
@@ -2434,6 +3136,10 @@ public:
 
 			e->angle=angle;
 
+			if(e->comp_health) {
+				player_health.set_progress(e->comp_health->health/e->comp_health->health_max);
+			}
+
 		}
 
 		for(Component* ccomp : entities.component_list(Component::TYPE_DISPLAY)) {
@@ -2457,17 +3163,21 @@ public:
 				q2.translate(e->pos);
 
 				//terrain collision
-				if(e->comp_shape->collision_mask&CompShape::COLLISION_GROUP_TERRAIN) {
+				if(shape->collision_mask&CompShape::COLLISION_GROUP_TERRAIN) {
 					sf::Vector2f q_size=q2.p2-q2.p1;
 
 					sf::FloatRect r(q2.p1,q_size);
 					sf::Vector2f col_normal;
 					if(terrain.check_collision(r,col_normal)) {
 						terrain.damage_area(r,20);
-						entity_damage(e,10);
-						CompBounce* c_bounce=(CompBounce*)entities.component_add(e,Component::TYPE_BOUNCE);
-						c_bounce->timer.reset(0.3);
-						c_bounce->vel=Utils::vec_reflect(e->vel,col_normal);
+
+						entity_damage(e,10.0f*shape->take_damage_terrain_mult);
+
+						if(shape->terrain_bounce) {
+							CompBounce* c_bounce=(CompBounce*)entities.component_add(e,Component::TYPE_BOUNCE);
+							c_bounce->timer.reset(0.3);
+							c_bounce->vel=Utils::vec_reflect(e->vel,col_normal);
+						}
 					}
 				}
 
@@ -2480,12 +3190,12 @@ public:
 						continue;
 					}
 
-					if( (e->comp_shape->collision_group&ce->comp_shape->collision_mask)==0 ||
-							(ce->comp_shape->collision_group&e->comp_shape->collision_mask)==0) {
+					if( (shape->collision_group&shape2->collision_mask)==0 ||
+							(shape2->collision_group&shape->collision_mask)==0) {
 						continue;
 					}
 
-					for(const Quad& cq : ce->comp_shape->quads) {
+					for(const Quad& cq : shape2->quads) {
 
 						Quad cq2=cq;
 						cq2.translate(ce->pos);
@@ -2494,7 +3204,7 @@ public:
 							entity_damage(e,shape2->hit_damage);
 							entity_damage(ce,shape->hit_damage);
 
-							if(e->comp_shape->bounce && ce->comp_shape->bounce) {
+							if(shape->bounce && shape2->bounce) {
 								sf::Vector2f b_vel=Utils::vec_normalize(e->pos-ce->pos)*100.0f;
 
 								CompBounce* c_bounce1=(CompBounce*)entities.component_add(e,Component::TYPE_BOUNCE);
@@ -2505,6 +3215,14 @@ public:
 								c_bounce2->timer.reset(0.3);
 								c_bounce2->vel=-b_vel;
 							}
+
+							if(e==player && shape2->hit_splatter.tex) {
+								add_splatter(shape2->hit_splatter);
+							}
+							else if(ce==player && shape->hit_splatter.tex) {
+								add_splatter(shape->hit_splatter);
+							}
+
 						}
 					}
 				}
@@ -2522,7 +3240,7 @@ public:
 			}
 		}
 
-		std::vector<sf::Vector2f> timeout_explosions;
+		std::vector<std::pair<sf::Vector2f,bool> > timeout_explosions;
 		for(Component* ccomp : entities.component_list(Component::TYPE_TIMEOUT)) {
 			CompTimeout* comp=(CompTimeout*)ccomp;
 
@@ -2532,7 +3250,7 @@ public:
 					entity_remove(comp->entity);
 				}
 				else if(comp->action==CompTimeout::ACTION_BIG_EXPLOSION) {
-					timeout_explosions.push_back(comp->entity->pos);
+					timeout_explosions.push_back(std::make_pair(comp->entity->pos,comp->entity->player_side));
 					entity_remove(comp->entity);
 				}
 				entities.component_remove(comp);
@@ -2540,7 +3258,7 @@ public:
 		}
 		//XXX: temp. adding components (to other entities) while traversing component_list crashes
 		for(std::size_t i=0;i<timeout_explosions.size();i++) {
-			add_big_explosion(timeout_explosions[i]);
+			add_big_explosion(timeout_explosions[i].first,timeout_explosions[i].second);
 		}
 
 
@@ -2569,13 +3287,16 @@ public:
 				float acc=200.0f;
 				sf::Vector2f diff=closest_attractor->pos-comp->entity->pos;
 				float dist=Utils::dist(diff);
-				diff+=comp->rand_offset*dist*0.3f;
-				sf::Vector2f vel=diff/dist*speed;
 
-				comp->entity->vel.x=Utils::num_move_towards(comp->entity->vel.x,vel.x,dt*acc);
-				comp->entity->vel.y=Utils::num_move_towards(comp->entity->vel.y,vel.y,dt*acc);
+				if(dist<comp->engage_distance) {
+					diff+=comp->rand_offset*dist*0.3f;
+					sf::Vector2f vel=diff/dist*speed;
 
-				continue;
+					comp->entity->vel.x=Utils::num_move_towards(comp->entity->vel.x,vel.x,dt*acc);
+					comp->entity->vel.y=Utils::num_move_towards(comp->entity->vel.y,vel.y,dt*acc);
+
+					continue;
+				}
 			}
 
 
@@ -2611,11 +3332,11 @@ public:
 
 				if(target) {
 					e->fire_gun[0]=true;
-					const std::vector<Component*> guns=entities.component_list(Component::TYPE_GUN);
-
-					for(std::size_t i=0;i<guns.size();i++) {
-						CompGun* g=(CompGun*)guns[i];
-						g->angle=Utils::rad_to_deg(Utils::vec_angle(target->pos-e->pos))-90;
+					//const std::vector<Component*> guns=entities.component_list(Component::TYPE_GUN);
+					for(Component* gun_comp : e->components) {
+						if(gun_comp->type!=Component::TYPE_GUN) continue;
+						CompGun* gun=(CompGun*)gun_comp;
+						gun->angle=Utils::rad_to_deg(Utils::vec_angle(target->pos-e->pos))-90;
 					}
 				}
 				else {
@@ -2633,7 +3354,7 @@ public:
 				sf::Vector2f diff=aim_pos+comp->target_offset-comp->entity->pos;
 				float dist=Utils::dist(diff);
 
-				if(dist>comp->engage_distance) {
+				if(comp->engage_distance>0.0f && dist>comp->engage_distance) {
 					comp->entity->vel.x=0;
 					comp->entity->vel.y=0;
 					comp->entity->fire_gun[0]=false;
@@ -2670,7 +3391,8 @@ public:
 			else if(comp->ai_type==CompAI::AI_AVOIDER) {
 				Entity* target=player;
 
-				if(Utils::vec_length_fast(target->pos-comp->entity->pos)>comp->engage_distance*comp->engage_distance) {
+				if(comp->engage_distance>0.0f &&
+						Utils::vec_length_fast(target->pos-comp->entity->pos)>comp->engage_distance*comp->engage_distance) {
 					continue;
 				}
 				float wanted_dist=300;
@@ -2721,16 +3443,26 @@ public:
 
 			Entity* target=player;
 
-			if(Utils::vec_length_fast(target->pos-comp->entity->pos)>comp->idle_distance*comp->idle_distance) {
+			float speed=150.0f;
+			float acc=200.0f;
+
+			bool is_idle=Utils::vec_length_fast(target->pos-comp->entity->pos)>comp->idle_distance*comp->idle_distance;
+
+			if(is_idle) {
+				comp->entity->vel.x=Utils::num_move_towards(comp->entity->vel.x,0,dt*acc);
+				comp->entity->vel.y=Utils::num_move_towards(comp->entity->vel.y,0,dt*acc);
+				comp->entity->fire_gun[0]=false;
 				continue;
 			}
 
 			for(const CompAI2::AIBehavior& behavior : comp->behaviors) {
 				if(behavior==CompAI2::AI_BEHAVIOR_SAFE_FOLLOW) {
-					float speed=150.0f;
-					float acc=200.0f;
-					float wanted_dist=300;
-					sf::Vector2f wanted_pos=target->pos+Utils::vec_normalize(comp->entity->pos-target->pos)*wanted_dist;
+					if(is_idle) {
+						continue;
+					}
+					sf::Vector2f wanted_pos=target->pos+Utils::vec_normalize(comp->entity->pos-target->pos)*comp->safe_follow_distance;
+					wanted_pos+=comp->rand_offset*20.0f;
+
 					sf::Vector2f diff=wanted_pos-comp->entity->pos;
 					sf::Vector2f vel=Utils::vec_normalize(diff)*speed;
 					comp->entity->vel.x=Utils::num_move_towards(comp->entity->vel.x,vel.x,dt*acc);
@@ -2741,6 +3473,14 @@ public:
 						continue;
 					}
 					comp->spawn_timeout-=dt;
+
+					if(comp->spawn_node) {
+						float animation_duration=1.0;
+						float anim=1.0f-std::min(1.0f,comp->spawn_timeout/animation_duration);
+						comp->spawn_node->set_animation_progress(anim);
+					}
+
+
 					if(comp->spawn_timeout>0) {
 						continue;
 					}
@@ -2748,9 +3488,50 @@ public:
 
 					Entity* e=create_by_id(Utils::vector_rand(comp->spawn_ids));
 					if(e) {
-						e->pos=comp->entity->pos;
+						e->pos=comp->entity->pos+comp->spawn_pos;
+						e->vel=comp->spawn_vel;
+						e->angle=comp->spawn_angle;
+						CompAI* e_ai=(CompAI*)entities.component_get(e,Component::TYPE_AI);
+						if(e_ai) {
+							e_ai->engage_distance=-1.0f;
+						}
 						entity_add(e);
 					}
+				}
+				else if(behavior==CompAI2::AI_BEHAVIOR_AIM_SHOOT) {
+					if(is_idle) {
+						continue;
+					}
+					for(Component* gun_comp : comp->entity->components) {
+						if(gun_comp->type!=Component::TYPE_GUN) continue;
+						CompGun* gun=(CompGun*)gun_comp;
+
+						//gun->angle=Utils::rad_to_deg(Utils::vec_angle(target->pos-comp->entity->pos))-90;
+
+						sf::Vector2f bullet_vel=target_lead(target->pos-comp->entity->pos,target->vel,gun->bullet_speed);
+						gun->angle=Utils::rad_to_deg(Utils::vec_angle(bullet_vel))-90;
+
+					}
+					comp->entity->fire_gun[0]=true;
+				}
+				else if(behavior==CompAI2::AI_BEHAVIOR_SHOOT) {
+
+					if(is_idle) {
+						comp->entity->fire_gun[0]=false;
+						continue;
+					}
+					if(comp->shoot_timer.is_done()) {
+						comp->shoot_idle_timer.update(dt);
+						if(comp->shoot_idle_timer.is_done()) {
+							comp->shoot_timer.reset();
+							comp->shoot_idle_timer.reset();
+						}
+					}
+					else {
+						comp->shoot_timer.update(dt);
+						comp->entity->fire_gun[0]=!comp->shoot_timer.is_done();
+					}
+
 				}
 			}
 
@@ -2897,6 +3678,9 @@ public:
 					bullet->pos=g->entity->pos+entity_rotate_vector(g->entity,g->pos);
 					bullet->angle=g->entity->angle+angle;
 					bullet->vel=Utils::vec_for_angle_deg(bullet->angle,g->bullet_speed);
+					if(!g->splatter_textures.empty()) {
+						bullet->comp_shape->hit_splatter=Utils::vector_rand(g->splatter_textures);
+					}
 					entity_add(bullet);
 				}
 			}
@@ -3042,14 +3826,17 @@ public:
 			}
 
 			comp->hammer_node->rotation=Utils::lerp(0,360,comp->anim);
-
+		}
+		for(Component* ccomp : entities.component_list(Component::TYPE_SPLATTER)) {
+			CompSplatter* splatter=(CompSplatter*)ccomp;
+			splatter->anim+=splatter->speed*dt;
+			splatter->entity->pos.y+=Easing::linear(splatter->anim)*100.0f*dt;
+			splatter->splatter_node.pos=splatter->entity->pos;
+			splatter->splatter_node.color.a=std::min(1.0f,(1.0f-splatter->anim)*10.0f);
 		}
 
-
 		entities.update();
-		//xxx
 		for(Entity* e : entities.attribute_list_entities(Entity::ATTRIBUTE_INTEGRATE_POSITION)) {
-		//for(Entity* e : entities.entities) {
 			e->pos+=e->vel*dt;
 		}
 
@@ -3208,6 +3995,7 @@ public:
 		if(!level_won) {
 			if(entities.attribute_list_entities(Entity::ATTRIBUTE_BOSS).size()==0) {
 				printf("level won!\n");
+				node_level_complete.visible=true;
 				level_won=true;
 			}
 		}
@@ -3375,6 +4163,9 @@ public:
 
 		minimap.pos.x=0;
 		minimap.pos.y=size.y-minimap.size.y;
+
+		node_level_complete.pos=sf::Vector2f(size.x*0.5f,size.y-80);
+		player_health.node.pos=sf::Vector2f((size.x-player_health.size.x)*0.5f,size.y-40);
 	}
 };
 

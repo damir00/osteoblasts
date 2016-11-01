@@ -173,9 +173,9 @@ public:
 		laser.shader.set_param("y_scale",laser.scale.y);
 
 	}
-
-
 };
+
+
 
 int main() {
 	Loader::init();
