@@ -2,7 +2,10 @@
 
 #if defined(__APPLE__)
 	#include <OpenGL/gl.h>
-#else
+#elif defined(WIN32)
+	#define NOMINMAX
+	#include <Windows.h>
+#else	//linux
 	#include <GL/gl.h>
 #endif
 
@@ -43,6 +46,7 @@ class Renderer {
 
 	sf::Sprite tmp_sprite;
 	sf::RectangleShape tmp_rectangle;
+	sf::Vector2f size;
 
 	void render_node(Node* node,const RenderState& state) {
 		if(!node->visible) {
@@ -137,6 +141,7 @@ class Renderer {
 				const sf::Texture& texture=new_state.target_texture[target_i]->getTexture();
 				sf::Sprite sprite(texture);
 
+				shader.set_param("resolution",size);
 				shader.applyParams();
 
 				if(i==node->post_process_shaders.size()-1) {
@@ -166,7 +171,7 @@ public:
 	}
 
 	void resize(sf::Vector2f _size) {
-
+		size=_size;
 	}
 	void render(sf::RenderTarget* _target,sf::RenderTexture* target_texture1,sf::RenderTexture* target_texture2,Node* node) {
 		RenderState state;

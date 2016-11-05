@@ -5,6 +5,8 @@
 #include <math.h>
 #include <vector>
 #include <cmath>
+#include <array>
+#include <algorithm>
 
 #include <SFML/System.hpp>
 #include <SFML/Graphics.hpp>

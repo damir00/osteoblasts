@@ -95,7 +95,8 @@ public:
 		add_level("crock");
 		add_level("barn");
 		add_level("luna");
-		for(int i=5;i<12;i++) {
+		add_level("platypus");
+		for(int i=6;i<12;i++) {
 			add_level("walrus");
 		}
 	}

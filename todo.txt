@@ -30,20 +30,22 @@ walrus boss & level
 octopuss boss & ocean level
 reptiles level & crocodile boss
 farm level & barn boss
+luna boss & fish level
 player health
 ship shining effect
-
-
-melee slash
-
-hook
-electricity
 grappling hook
+hook
+platypus boss & platypus level
 stun blast
+melee slash
 rotating blades
+electricity
 electric blades
 
-enemies warp in
+
+ship bounce reflect by normal
+
+//enemies warp in
 
 weapons cooloff
 

@@ -135,6 +135,7 @@ public:
 };
 
 #ifdef WIN32
+#define NOMINMAX
 #include <Windows.h>
 int WinMain(HINSTANCE hInstance,HINSTANCE hPrevInstance,LPSTR lpCmdLine,int nCmdShow) {
 

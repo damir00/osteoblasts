@@ -73,6 +73,7 @@ public:
 
 class NodeShader {
 	std::unordered_map<std::string,float> param_float;
+	std::unordered_map<std::string,sf::Vector2f> param_vec2;
 public:
 	sf::Shader* shader;
 
@@ -85,12 +86,19 @@ public:
 	void set_param(const std::string& name,float p) {
 		param_float[name]=p;
 	}
+	void set_param(const std::string& name,const sf::Vector2f& p) {
+		param_vec2[name]=p;
+	}
 	void applyParams() {
 		if(!shader) {
 			return;
 		}
-		for(std::unordered_map<std::string,float>::iterator it=param_float.begin();it!=param_float.end();it++) {
-			shader->setParameter(it->first,it->second);
+		//for(std::unordered_map<std::string,float>::iterator it=param_float.begin();it!=param_float.end();it++) {
+		for(/*std::unordered_map<std::string,float>::iterator*/auto it : param_float) {
+			shader->setParameter(it.first,it.second);
+		}
+		for(auto it : param_vec2) {
+			shader->setParameter(it.first,it.second);
 		}
 	}
 };

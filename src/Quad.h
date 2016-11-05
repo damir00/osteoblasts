@@ -2,6 +2,7 @@
 #define _BGA_QUAD_H_
 
 #include <cmath>
+#include <math.h>
 
 #include <SFML/System/Vector2.hpp>
 
@@ -30,6 +31,12 @@ public:
 
 	bool intersects(const Quad& q) const {
 		return (p1.x<=q.p2.x && p2.x>=q.p1.x && p1.y<=q.p2.y && p2.y>=q.p1.y);
+	}
+	bool intersects_circle(const sf::Vector2f& pos,float r) const {
+		//lazy, center intersection
+		sf::Vector2f diff=pos-(p2+p1)*0.5f;
+		float dist2=(diff.x*diff.x+diff.y*diff.y);
+		return (dist2<=r*r);
 	}
 	bool contains(const sf::Vector2f& v) const {
 		return (v.x>=p1.x && v.x<=p2.x && v.y>=p1.y && v.y<=p2.y);
